@@ -69,5 +69,23 @@ class NodeV:
     def calculateMerkle(self, strNodeName):
         listFrame = self.__listFrames[strNodeName]
         listHashFrame = list
-        for frame in listFrame:
+        # for frame in listFrame:
             # ToBe continue
+
+
+class NodeSV(NodeV):
+    __strSeosorURL          :str
+    __listSensorFrame             :list
+
+    def __init__(self, strName  :str, strURL    :str):
+        super.__init__(strName, "Sensor")
+        self.__strSeosorURL = strURL
+
+    def getSensorData(self):
+        container = av.open(self.strURL)
+        video_stream = next(s for s in container.streams if s.type == 'video')
+        for frame in container.decode(video_stream):
+            self.__listSensorFrame.append(frame)
+
+    def snedSensorData(self):
+        print("f")      # 수정
