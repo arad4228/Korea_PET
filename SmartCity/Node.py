@@ -93,12 +93,12 @@ class NodeV:
 
 
 class NodeSV(NodeV):
-    __strSeosorURL          :str
+    __strSensorURL          :str
     __listSensorFrame       :list
 
     def __init__(self, strName  :str, strURL    :str):
         super.__init__(strName, "Sensor")
-        self.__strSeosorURL = strURL
+        self.__strSensorURL = strURL
 
     def getSensorData(self):
         container = av.open(self.strURL)
