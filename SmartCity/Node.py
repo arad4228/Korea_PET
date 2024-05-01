@@ -1,33 +1,41 @@
 from threading import Thread, Event, Lock
 from time import *
+from ecdsa import SigningKey, VerifyingKey, NIST256p
+from hashlib import sha256
 import socket
 import datetime
-import hashlib
-import av
 import subprocess
 import shlex
+import struct
+import io
+import av
 
 MAX_Size = 10000
 
 ## Verification Node
 class NodeV:
-    __strNodeName           :str
-    __strNodeRole           :str
-    __pairKeys              :list
-    __listNodes             :dict
-    __nInitialNodeNumber    :int
-    __dictReceivedData      :dict  # key: strNodeRole, value: strIP
-    __lockThread            :Lock
+    __pubKeyNode            :VerifyingKey   # ex) Node's pubkey to hex String
+    __strNodeRole           :str            # Validator or Sensor
+    __privKey               :SigningKey     # priv
+    __listNodes             :dict           #(Json) "NodeName" : {"NodeRole" : "role", "Port": "nPort", "Pubkey": "pubkeyes"}
+    __nInitialNodeNumber    :int        
+    __dictReceivedData      :dict           # (Json) "NodeName" : {"NodeRole" : "role", "Port": "nPort"}
+    __lockThread            :Lock           # Mutex Lock
     __listThread            :list
-    __listFrames            :dict
+    __listFrames            :dict           # Received Frames "NodeName" : [Frame, ...]
 
     __socketSendFrame       :socket
     __socketReceived        :socket
     
-    def __init__(self, strName, port):
-        self.__strNodeName = strName
+    def __init__(self, strPubkey, port):
+        self.__pubKeyNode = VerifyingKey.from_string(bytes.fromhex(strPubkey), curve=NIST256p)
         self.__strNodeRole = 'Validator'
+        self.__listNodes = list()
+        self.__dictReceivedData = dict()
         self.__lockThread = Lock()
+        self.__listThread = list()
+        self.__listFrames = dict()
+        
         # 받고 보낼 소켓 생성
         self.__socketSendFrame = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.__socketReceived = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -35,17 +43,34 @@ class NodeV:
         self.__socketSendFrame.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
         self.__socketReceived.bind(('', port))
 
+    def __image_to_bytes(self, image):
+        img_byte_arr = io.BytesIO()
+        image.save(img_byte_arr, format='PNG')
+        img_byte_arr = img_byte_arr.getvalue()
+        return img_byte_arr
+
     def getNodeName(self):
-        return self.__strNodeName
+        return self.__pubKeyNode.to_string().hex()
     
     def setNodeRole(self, strNodeRole   :str):
-        self.__strNodeRole = strNodeRole
+        if strNodeRole == "Validator" or strNodeRole == "Sensor":
+            self.__strNodeRole = strNodeRole
+        else:
+            raise Exception("올바르지 않는 Role을 부여했습니다")
         
     def setInitialNodeNumber(self, nNodeNum: int):
         self.__nInitialNodeNumber = nNodeNum
 
+    # 수정 필요
+    def loadSecrete(self, secrete):
+        with open(secrete, 'r') as f:
+            data = f.readline()
+            # 특정 데이터를 기반으로 데이터를 분리.
+            
+            self.__privKey = data
+    
     def getOwnSecrete(self):
-        return self.__pairkeys
+        return self.__privKey
     
     def broadCastNodeData(self, port):
         while True:
@@ -57,7 +82,7 @@ class NodeV:
             self.__lockThread.release()
 
             ## 모든 네트워크 대역에 Broadcast
-            message = (self.__strNodeName + self.__strNodeRole).encode("UTF-8")
+            message = (self.pubKeyNode + self.__strNodeRole).encode("UTF-8")
             self.__socketSendFrame.sendto(message, ('<broadcast>', port))
 
     def receivedNodeData(self):
@@ -82,38 +107,56 @@ class NodeV:
         # length of Node | key: Ip value: NodeName||NodeRole
         message = str(len(self.__listNodes))
         print('temp')
-
-    def receivedSensorData(self, strNodeName):
-        # 전달 받고 T까지 전달 받음.
-        listFrameData = list
-
-        while True:
-            # received packet
-            # if packet 이 end라면 stop
-            # data 받아서 list 추가
-            data = 'data'    # 수정
-            listFrameData.append(data)
+    
+    def receivedSensorData(self, pubKeyNode):
+        try:
+            listFrameData = list
+            totalFrames = self.__socketReceived.recv(4)
+            totalFrames = struct.unpack('i', totalFrames[0])
+            print(f"{pubKeyNode}의 총 {totalFrames} Frame을 수신합니다.")
+            counter = 0
+            while True:
+                if counter == totalFrames:
+                    break
+                nFrameSize = self.__socketReceived.recv(8)
+                nFrameSize = struct.unpack('Q', nFrameSize[0]) # long long
+                
+                # SID(pubKeyNode),SIG(F||Addr(s,t)),F,Addr <- 전제는 String으로 보내기.
+                recevedData = self.__socketReceived.recv(nFrameSize)
+                splitedData = recevedData.split(',')
+                if splitedData[0] != pubKeyNode:
+                    continue
+                signature = splitedData[1]
+                frame = splitedData[2]
+                addrIPFS = splitedData[3]
+                message = f'{frame},{addrIPFS}'
+                ret = pubKeyNode.verify(signature, message, sha256)
+                if not ret:
+                    raise Exception(f"{pubKeyNode}의 {addrIPFS}의 서명 검증에 실패했습니다.")
+                
+                listFrameData.append(frame)
+                counter += 1
+                
+            self.__dictReceivedData[pubKeyNode] = listFrameData
+            print(f"{pubKeyNode}의 총 {totalFrames} Frame을 저장하였습니다.")
+            
+        except Exception as e:
+            print(f"{pubKeyNode}의 데이터를 수집하는 과정에서 아래 오류가 발생했습니다.\n{e}")
         
-        self.__listFrames[strNodeName] = listFrameData
+    def calculateMerkleTree(self, pubKeyNode):
+        listNodeFrame = self.__dictReceivedData[pubKeyNode]
+        listHashData = list()
         
-    def calculateMerkle(self, strNodeName):
-        listFrame = self.__listFrames[strNodeName]
-        listHashFrame = list
-        # for frame in listFrame:
-            # ToBe continue
-
 
 ## Node Sensor & Verification
 class NodeSV(NodeV):
     __strSensorURL          :str
     __listSensorFrame       :list
-    __event                 :Event
 
-    def __init__(self, strName  :str, port, strURL    :str):
-        super().__init__(strName, port)
+    def __init__(self, strPubkey  :str, port, strURL):
+        super().__init__(strPubkey, port)
         self.__strSensorURL = strURL
         self.setNodeRole("Sensor")
-        self.__event = Event()
         self.__listSensorFrame = list()
     
     def getSensorData(self, timeDelay):
