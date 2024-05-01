@@ -1,10 +1,15 @@
-from socket import *
-import threading
+from threading import Thread, Event, Lock
+from time import *
+import socket
+import datetime
 import hashlib
 import av
+import subprocess
+import shlex
 
 MAX_Size = 10000
 
+## Verification Node
 class NodeV:
     __strNodeName           :str
     __strNodeRole           :str
@@ -12,24 +17,30 @@ class NodeV:
     __listNodes             :dict
     __nInitialNodeNumber    :int
     __dictReceivedData      :dict  # key: strNodeRole, value: strIP
-    __lockThread            :threading.Lock
+    __lockThread            :Lock
     __listThread            :list
     __listFrames            :dict
 
     __socketSendFrame       :socket
     __socketReceived        :socket
     
-    def __init__(self, strName  :str, port):
+    def __init__(self, strName, port):
         self.__strNodeName = strName
         self.__strNodeRole = 'Validator'
-        self.__lockThread = threading.Lock()
+        self.__lockThread = Lock()
         # 받고 보낼 소켓 생성
-        self.__socketSendFrame = socket(AF_INET, SOCK_DGRAM)
-        self.__socketReceived = socket(AF_INET, SOCK_DGRAM)
+        self.__socketSendFrame = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.__socketReceived = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         # 보내는 소켓은 BroadCast, 받는 소캣은 전부 수용하도록 설정
         self.__socketSendFrame.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
         self.__socketReceived.bind(('', port))
 
+    def getNodeName(self):
+        return self.__strNodeName
+    
+    def setNodeRole(self, strNodeRole   :str):
+        self.__strNodeRole = strNodeRole
+        
     def setInitialNodeNumber(self, nNodeNum: int):
         self.__nInitialNodeNumber = nNodeNum
 
@@ -92,19 +103,30 @@ class NodeV:
             # ToBe continue
 
 
+## Node Sensor & Verification
 class NodeSV(NodeV):
     __strSensorURL          :str
     __listSensorFrame       :list
+    __event                 :Event
 
-    def __init__(self, strName  :str, strURL    :str):
-        super.__init__(strName, "Sensor")
+    def __init__(self, strName  :str, port, strURL    :str):
+        super().__init__(strName, port)
         self.__strSensorURL = strURL
-
-    def getSensorData(self):
-        container = av.open(self.strURL)
-        video_stream = next(s for s in container.streams if s.type == 'video')
-        for frame in container.decode(video_stream):
-            self.__listSensorFrame.append(frame)
+        self.setNodeRole("Sensor")
+        self.__event = Event()
+        self.__listSensorFrame = list()
+    
+    def getSensorData(self, timeDelay):
+        # Get Video Data
+        timeCurrent = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        command = f"ffmpeg -i {shlex.quote(self.__strSensorURL)} -t {timeDelay} -c copy {shlex.quote(f'{self.getNodeName()} {timeCurrent}.mp4')}"
+        try:
+        # subprocess를 사용하여 타임아웃 설정
+            process = subprocess.run(command, shell=True, timeout=timeDelay+5, text=True, capture_output=True)
+            if process.returncode != 0:
+                raise Exception(f"{self.getNodeName()}의 {timeCurrent}시간대 영상 저장 실패")
+        except Exception as e:
+            print(f"다음과 같은 예외가 발생했습니다. \n{e}")
 
     def snedSensorData(self):
         print("f")      # 수정
