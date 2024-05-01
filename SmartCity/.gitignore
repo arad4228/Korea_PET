@@ -1,2 +1,5 @@
 ## python cache file
-__pycache__
+__pycache__ 
+
+## python env
+.venv
