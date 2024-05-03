@@ -8,7 +8,6 @@ class KGC:
     __pubkeyKGC             :VerifyingKey
     __privkeyKGC            :SigningKey
     __web3                  :Web3
-    __accountKGC            :Web3.eth.default_account
     __strsmartContract      :str
     
     def __init__(self):
@@ -21,16 +20,18 @@ class KGC:
         listPubkeys = []
         for i in range(nClient):
             priv = SigningKey.generate(curve=NIST256p)
-            while priv not in listPrivKeys:
+            while True:
+                if priv not in listPrivKeys:
+                    break
                 priv = SigningKey.generate(curve=NIST256p)
             pub = priv.verifying_key
-            listPrivKeys.append(priv)
-            listPubkeys.append(pub)
+            listPrivKeys.append(priv.to_string().hex())
+            listPubkeys.append(pub.to_string().hex())
         
         dictNdoeList = OrderedDict()
-        for strNodeName in listNodeName:
+        for strNodeName, hexPirv, hexPub in zip(listNodeName, listPrivKeys, listPubkeys):
             dictKeyPair = dict()
-            dictKeyPair[priv] = pub
+            dictKeyPair[hexPirv] = hexPub
             dictNdoeList[strNodeName] = dictKeyPair
         
         with open("NodeKeyPair.json", 'w') as f:

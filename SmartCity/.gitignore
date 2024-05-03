@@ -3,3 +3,6 @@ __pycache__
 
 ## python env
 .venv
+
+## Priv, Pubkey Data
+NodeKeyPair.json
