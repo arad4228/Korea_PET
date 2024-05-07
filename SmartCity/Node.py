@@ -16,23 +16,24 @@ MAX_Size = 10000
 
 ## Verification Node
 class NodeV:
-    __pubKeyNode                    :VerifyingKey   # ex) Node's pubkey to hex String
+    __strNodeName                   :str            # ex) SensorA, SensorB, ...
     __strNodeRole                   :str            # Validator or Sensor
-    __privKey                       :SigningKey     # priv
+    __pubKeyNode                    :VerifyingKey   # ex) Node's pubkey
+    __privKeyNode                   :SigningKey     # priv
     __nInitialNodeNumber            :int        
-    __dictReceivedData              :OrderedDict    # (Json) "pubkeyNode" : {"IP": "ipData", "NodeRole" : "role"}
+    __dictReceivedData              :OrderedDict    # (Json) "nodeName" : {"IP": "ipData", "NodeRole" : "role", "PublicKey": "pubkey"}
     __lockThread                    :Lock           # Mutex Lock
     __eventSocket                   :Event
     __listThread                    :list
-    __listFrames                    :dict           # Received Frames "pubkeyNode" : [Frame, ...]
+    __listReceivedFrames            :dict           # Received Frames "nodePubkey" : [Frame, ...]
 
     __ownIPAddress                  :str
     __nPort                         :int
     __socketReceived                :socket
     __socketBroadcastSendFrame      :socket
 
-    def __init__(self, strPubkey, ownIp):
-        self.__pubKeyNode = VerifyingKey.from_string(bytes.fromhex(strPubkey), curve=NIST256p)
+    def __init__(self, strNodeName, ownIP):
+        self.__strNodeName = strNodeName
         self.__strNodeRole = 'Validator'
         self.__dictReceivedData = OrderedDict()
         self.__lockThread = Lock()
@@ -40,13 +41,13 @@ class NodeV:
         self.__listThread = list()
         self.__listFrames = dict()
         self.__nPort = 8080
-        self.__ownIPAddress = ownIp
+        self.__ownIPAddress = ownIP
         
         # 받고 보낼 소켓 생성
         self.__socketReceived = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.__socketBroadcastSendFrame = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         # 보내는 소켓은 BroadCast, 받는 소캣은 전부 수용하도록 설정
-        self.__socketReceived.bind((ownIp, self.__nPort))
+        self.__socketReceived.bind((ownIP, self.__nPort))
         self.__socketBroadcastSendFrame.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
 
     def __image_to_bytes(self, image):
@@ -56,8 +57,8 @@ class NodeV:
         return img_byte_arr
 
     # Test 필요
-    def __broadCastNodeData(self, port):
-        dict_data = {"pubkeyNode" : {"IP": f"{self.__ownIPAddress}", "Role": f"{self.__strNodeRole}"}}
+    def __broadCastNodeData(self):
+        dict_data = {self.__strNodeName : {"IP": self.__ownIPAddress, "Role": self.__strNodeRole, "PublicKey" : self.__pubKeyNode}}
         jsonNodeData = json.dumps(dict_data)
         nJsonNodeData = len(jsonNodeData)
         
@@ -66,10 +67,12 @@ class NodeV:
             self.__lockThread.aquire()
             if len(self.__dictReceivedData) >= self.__nInitialNodeNumber or self.__eventSocket.is_set():
                 self.__lockThread.release()
+                print(f"Status::NodeList: {len(self.__dictReceivedData)}")
                 break
             self.__lockThread.release()
+            
             ## 모든 네트워크 대역에 Broadcast
-            # B||Size||
+            # B||Size||dictData
             typeSendB = struct.pack('c', b'B')
             nData = struct.pack('Q', nJsonNodeData)
             message = typeSendB + nData + jsonNodeData.encode('utf-8')
@@ -84,6 +87,7 @@ class NodeV:
             self.__socketBroadcastSendFrame.sendto(typeSendE ('<broadcast>', self.__nPort))
         
         # 자신이 가진 데이터를 모두 전송.
+        # N||Size||NodeList
         nData = len(self.__dictReceivedData)
         typeSendN = struct.pack('c', b'N')
         nMessageData = struct.pack('Q', nData)
@@ -105,6 +109,7 @@ class NodeV:
             message_type = struct.unpack('c', initialData[:1])[0]
             # End
             if message_type == b'E':
+                print(f"State::{addr}대역의 노드가 초기 네트워크 구성에 성공했습니다.")
                 self.__eventSocket.set()
                 break
             # Node Information
@@ -122,20 +127,38 @@ class NodeV:
             nData = struct.unpack('Q', nData)[0]
             dictNodeData, addr = self.__socketReceived.recvfrom(nData)
             dictNodeData = json.loads(dictNodeData.decode('UTF-8'))
-            
+            oldDictSize = len(self.__dictReceivedData)
+            self.__dictReceivedData.update(dictNodeData)
+            print(f"State::업데이트 전 크기: {oldDictSize}, 업데이트 후 크기: {len(self.__dictReceivedData)}")
         # 수정 필요
-    def loadSecrete(self, secrete):
-        with open(secrete, 'r') as f:
-            data = f.readline()
-            # 특정 데이터를 기반으로 데이터를 분리.
-            
-            self.__privKey = data
     
-    def getOwnSecrete(self):
-        return self.__privKey
+    def networkInitialize(self):
+        self.__listThread.append(Thread(target=self.__broadCastNodeData))
+        self.__listThread.append(Thread(target=self.__receivedNodeData))
+        
+        for work in self.__listThread:
+            work.start()
+        
+        for work in self.__listThread:
+            work.join()
+    
+    def loadSecrete(self, file):
+        with open(file, 'r') as f:
+            data = json.load(f)
+            dictKeyPair = data[self.__strNodeName]
+            priv = list(dictKeyPair.keys())[0]
+            pub = dictKeyPair[priv]
+            self.__privKeyNode = priv
+            self.__pubKeyNode = pub
+                
+    def getOwnPrivateKey(self):
+        return self.__privKeyNode
+    
+    def getOwnPublicKey(self):
+        return self.__pubKeyNode
         
     def getNodeName(self):
-        return self.__pubKeyNode.to_string().hex()
+        return self.__strNodeName
     
     def setNodeRole(self, strNodeRole   :str):
         if strNodeRole == "Validator" or strNodeRole == "Sensor":
@@ -145,32 +168,43 @@ class NodeV:
         
     def setInitialNodeNumber(self, nNodeNum: int):
         self.__nInitialNodeNumber = nNodeNum
-
-    def initialized(self):
-        print("temp")
     
-    def receivedSensorData(self, pubKeyNode):
+    def receivedSensorData(self, strNodeName):
+        print(f"{strNodeName}의 Frame을 수신합니다.")
+         # 노드의 공개키 찾기 추가하기
+        nodeData = self.__dictReceivedData[strNodeName]
+        if nodeData == None:
+            raise Exception(f"{strNodeName}은 네트워크에 존재하지 않는 노드이름입니다.")            
+        pubKeyNode  = nodeData['PublicKey']
+        if pubKeyNode == None:
+            raise Exception(f"{strNodeName}의 공개키가 존재하지 않습니다.")
+        
+        listFrameData = list()
+        counter = 0
         try:
-            listFrameData = list
-            totalFrames = self.__socketReceived.recv(4)
-            totalFrames = struct.unpack('i', totalFrames[0])
-            print(f"{pubKeyNode}의 총 {totalFrames} Frame을 수신합니다.")
-            counter = 0
             while True:
-                if counter == totalFrames:
-                    break
+                typePacket = self.__socketReceived(1)
+                typePacket = struct.unpack('c', typePacket[0])
+                if typePacket != b'S':
+                    continue
+                
+                totalFrames = self.__socketReceived.recv(8)
+                totalFrames = struct.unpack('Q', totalFrames[0])
                 nFrameSize = self.__socketReceived.recv(8)
                 nFrameSize = struct.unpack('Q', nFrameSize[0]) # long long
                 
-                # SID(pubKeyNode),SIG(F||Addr(s,t)),F,Addr <- 전제는 String으로 보내기.
+                # SID,SIG(F||Addr(s,t)),F,Addr <- 전제는 String으로 보내기.
                 recevedData = self.__socketReceived.recv(nFrameSize)
                 splitedData = recevedData.split(',')
-                if splitedData[0] != pubKeyNode:
+                if splitedData[0] != strNodeName:
                     continue
+                if counter == totalFrames:
+                    break
+                
                 signature = splitedData[1]
                 frame = splitedData[2]
                 addrIPFS = splitedData[3]
-                message = f'{frame},{addrIPFS}'
+                message = f'{frame}{addrIPFS}'
                 ret = pubKeyNode.verify(signature, message, sha256)
                 if not ret:
                     raise Exception(f"{pubKeyNode}의 {addrIPFS}의 서명 검증에 실패했습니다.")
@@ -179,10 +213,10 @@ class NodeV:
                 counter += 1
                 
             self.__dictReceivedData[pubKeyNode] = listFrameData
-            print(f"{pubKeyNode}의 총 {totalFrames} Frame을 저장하였습니다.")
+            print(f"{strNodeName}의 총 {totalFrames} Frame을 저장하였습니다.")
             
         except Exception as e:
-            print(f"{pubKeyNode}의 데이터를 수집하는 과정에서 아래 오류가 발생했습니다.\n{e}")
+            print(f"{strNodeName}의 데이터를 수집하는 과정에서 아래 오류가 발생했습니다.\n{e}")
         
     def calculateMerkleTree(self, pubKeyNode):
         listNodeFrame = self.__dictReceivedData[pubKeyNode]
@@ -192,13 +226,17 @@ class NodeV:
 ## Node Sensor & Verification
 class NodeSV(NodeV):
     __strSensorURL          :str
-    __listSensorFrame       :list
+    __listSensorData        :list   #ex) [ {"time": "IPFS Addr", "Frames": []}, ....]
 
-    def __init__(self, strPubkey  :str, port, strURL):
-        super().__init__(strPubkey, port)
+    def __init__(self, strNodeName  :str, ownIP, secreteFile ,strURL):
+        super().__init__(strNodeName, ownIP)
         self.__strSensorURL = strURL
         self.setNodeRole("Sensor")
-        self.__listSensorFrame = list()
+        self.loadSecrete(secreteFile)
+        self.__listSensorData = list()
+        
+    def __uploadSensorDataIPFS(self, fileName):
+        print("temp")
     
     def getSensorData(self, timeDelay):
         # Get Video Data
@@ -209,8 +247,27 @@ class NodeSV(NodeV):
             process = subprocess.run(command, shell=True, timeout=timeDelay+5, text=True, capture_output=True)
             if process.returncode != 0:
                 raise Exception(f"{self.getNodeName()}의 {timeCurrent}시간대 영상 저장 실패")
+            
+            # IPFS 업로드
+            
+            
+            # frame 쪼개기.
         except Exception as e:
             print(f"다음과 같은 예외가 발생했습니다. \n{e}")
 
-    def snedSensorData(self):
-        print("f")      # 수정
+    def sendSensorData(self):
+        strNodeName = self.getNodeName()
+        collectionsSensorData = self.__listSensorData.pop(0)
+        time = collectionsSensorData.keys()[0]
+        addrIPFS = collectionsSensorData[time]
+        listFrames = collectionsSensorData['FrameData']
+        
+        typePacket = b'S'
+        packedType = struct.pack('c', typePacket)
+        nListSensorFrame = len(listFrames)
+        packedLengthFrames = struct.pack('Q', nListSensorFrame)
+        # S||nFreameList||nData(SID||SIG(F||AddrIPFS)||Frame||AddrIPFS)
+        message = packedType + packedLengthFrames
+        
+        for frame in listFrames:
+            print("temp)")
