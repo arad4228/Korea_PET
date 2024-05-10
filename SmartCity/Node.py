@@ -1,16 +1,18 @@
 from threading import Thread, Event, Lock
 from time import *
-from ecdsa import SigningKey, VerifyingKey, NIST256p
+from ecdsa_test import SigningKey, VerifyingKey, NIST256p
 from hashlib import sha256
 from collections import OrderedDict
 import socket
 import datetime
-import subprocess
-import shlex
 import struct
 import io
 import json
-import av
+import cv2
+import requests
+# import av
+# import subprocess
+# import shlex
 
 MAX_Size = 10000
 
@@ -25,7 +27,7 @@ class NodeV:
     __lockThread                    :Lock           # Mutex Lock
     __eventSocket                   :Event
     __listThread                    :list
-    __listReceivedFrames            :dict           # Received Frames "nodePubkey" : [Frame, ...]
+    __dictReceivedFrames            :dict           # Received Frames "strNodeName" : [Frame, ...]
 
     __ownIPAddress                  :str
     __nPort                         :int
@@ -39,8 +41,8 @@ class NodeV:
         self.__lockThread = Lock()
         self.__eventSocket = Event()
         self.__listThread = list()
-        self.__listFrames = dict()
-        self.__nPort = 8080
+        self.__dictReceivedFrames = dict()
+        self.__nPort = 9000
         self.__ownIPAddress = ownIP
         
         # 받고 보낼 소켓 생성
@@ -187,13 +189,13 @@ class NodeV:
                 typePacket = struct.unpack('c', typePacket[0])
                 if typePacket != b'S':
                     continue
-                
+                # S||nFrameList||nData||SID,SIG(F||AddrIPFS),Frame,AddrIPFS
+
                 totalFrames = self.__socketReceived.recv(8)
                 totalFrames = struct.unpack('Q', totalFrames[0])
                 nFrameSize = self.__socketReceived.recv(8)
                 nFrameSize = struct.unpack('Q', nFrameSize[0]) # long long
                 
-                # SID,SIG(F||Addr(s,t)),F,Addr <- 전제는 String으로 보내기.
                 recevedData = self.__socketReceived.recv(nFrameSize)
                 splitedData = recevedData.split(',')
                 if splitedData[0] != strNodeName:
@@ -204,7 +206,7 @@ class NodeV:
                 signature = splitedData[1]
                 frame = splitedData[2]
                 addrIPFS = splitedData[3]
-                message = f'{frame}{addrIPFS}'
+                message = f'{frame}{addrIPFS}'.encode("UTF-8")
                 ret = pubKeyNode.verify(signature, message, sha256)
                 if not ret:
                     raise Exception(f"{pubKeyNode}의 {addrIPFS}의 서명 검증에 실패했습니다.")
@@ -212,62 +214,126 @@ class NodeV:
                 listFrameData.append(frame)
                 counter += 1
                 
-            self.__dictReceivedData[pubKeyNode] = listFrameData
+            self.__dictReceivedFrames[strNodeName] = listFrameData
             print(f"{strNodeName}의 총 {totalFrames} Frame을 저장하였습니다.")
             
         except Exception as e:
             print(f"{strNodeName}의 데이터를 수집하는 과정에서 아래 오류가 발생했습니다.\n{e}")
         
-    def calculateMerkleTree(self, pubKeyNode):
-        listNodeFrame = self.__dictReceivedData[pubKeyNode]
+    def calculateMerkleTree(self, strNodeName):
+        listRecedFrame = self.__dictReceivedFrames[strNodeName]
         listHashData = list()
         
+        for frame in listRecedFrame:
+            listHashData.append(sha256(frame.encode("UTF-8")).digest())
+        
+        while len(listHashData) != 1:
+            if len(listHashData) % 2 != 0:
+                listHashData.append(listHashData[-1])
+                
+            for i in range(len(listHashData//2)):
+                left = listHashData.pop(0)
+                right = listHashData.pop(0)
+                listHashData.append(sha256(f'{left.hex()}{right.hex()}'.encode('UTF-8')).digest())
+        
+        return listHashData[0].hex()            
 
 ## Node Sensor & Verification
 class NodeSV(NodeV):
     __strSensorURL          :str
-    __listSensorData        :list   #ex) [ {"time": "IPFS Addr", "Frames": []}, ....]
+    __ownIPFSUrl            :str
+    __dicttSensorData        :dict   #ex) [ "time": {"IPFSAddr": "addr", "Frames": []}, ....]
 
-    def __init__(self, strNodeName  :str, ownIP, secreteFile ,strURL):
+    def __init__(self, strNodeName  :str, ownIP, secreteFile ,strURL, strOwnIPFS):
         super().__init__(strNodeName, ownIP)
         self.__strSensorURL = strURL
+        self.__ownIPFSUrl = strOwnIPFS
         self.setNodeRole("Sensor")
         self.loadSecrete(secreteFile)
-        self.__listSensorData = list()
+        self.__dicttSensorData = dict()
         
     def __uploadSensorDataIPFS(self, fileName):
-        print("temp")
+        url = self.__ownIPFSUrl +'/api/v0/add'
+        file = {'file': open(fileName, 'rb')}
+        response = requests.post(url, files=file)
+        if response.status_code == 200:
+            return json.loads(response.text)
+        else:
+            raise Exception("영상을 IPFS에 올리지 못했습니다.")
     
     def getSensorData(self, timeDelay):
         # Get Video Data
-        timeCurrent = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        command = f"ffmpeg -i {shlex.quote(self.__strSensorURL)} -t {timeDelay} -c copy {shlex.quote(f'{self.getNodeName()} {timeCurrent}.mp4')}"
+        timeCurrent = datetime.datetime.now().strftime("%Y-%m-%d.%H:%M:%S")
+        # command = f"ffmpeg -i {shlex.quote(self.__strSensorURL)} -t {timeDelay} -c copy {shlex.quote(f'{self.getNodeName()} {timeCurrent}.mp4')}"
+        # try:
+        # # subprocess를 사용하여 타임아웃 설정
+        #     process = subprocess.run(command, shell=True, timeout=timeDelay+5, text=True, capture_output=True)
+        #     if process.returncode != 0:
+        #         raise Exception(f"{self.getNodeName()}의 {timeCurrent}시간대 영상 저장 실패")
         try:
-        # subprocess를 사용하여 타임아웃 설정
-            process = subprocess.run(command, shell=True, timeout=timeDelay+5, text=True, capture_output=True)
-            if process.returncode != 0:
-                raise Exception(f"{self.getNodeName()}의 {timeCurrent}시간대 영상 저장 실패")
+            cap = cv2.VideoCapture(self.__strSensorURL)
+            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            fps = 40
             
+            # 영상을 내보내는 형식은 avi 형식으로
+            fourcc = cv2.VideoWriter_fourcc(*'XVID')
+            filePath = f'SavedVideo/{timeCurrent}.avi'
+            out = cv2.VideoWriter(filePath, fourcc, fps, (width, height))
+            
+            if not cap.isOpened():
+                raise Exception(f"{self.__strSensorURL} 주소에서 데이터를 받을 수 없습니다.")
+            videoFrame = list()
+            start_time = cv2.getTickCount() / cv2.getTickFrequency()
+            while True:
+                ret, frame = cap.read()
+                if not ret:
+                    break
+                videoFrame.append(frame)
+                out.write(frame)
+                
+                current_time = cv2.getTickCount() / cv2.getTickFrequency()
+                if current_time - start_time >= timeDelay:
+                    break
+                
+            cap.release()
+            out.release()
             # IPFS 업로드
+            res = self.__uploadSensorDataIPFS(filePath)
+            print(res)
+            IPFSDataHash = res['Hash']
+            innerJson = {"IPFSAddr":IPFSDataHash, "Frames": videoFrame}
             
+            # "time": {"IPFSAddr": "addr", "Frames": []}
+            self.__dicttSensorData[current_time] = innerJson
+            return current_time
             
-            # frame 쪼개기.
         except Exception as e:
             print(f"다음과 같은 예외가 발생했습니다. \n{e}")
 
-    def sendSensorData(self):
-        strNodeName = self.getNodeName()
-        collectionsSensorData = self.__listSensorData.pop(0)
-        time = collectionsSensorData.keys()[0]
-        addrIPFS = collectionsSensorData[time]
-        listFrames = collectionsSensorData['FrameData']
+    def sendSensorData(self, timeSensor):
+        collectionsSensorData = self.__dicttSensorData[timeSensor]
+        addrIPFS = collectionsSensorData['IPFSAddr']
+        listFrames = collectionsSensorData['Frames']
         
         typePacket = b'S'
         packedType = struct.pack('c', typePacket)
         nListSensorFrame = len(listFrames)
         packedLengthFrames = struct.pack('Q', nListSensorFrame)
-        # S||nFreameList||nData(SID||SIG(F||AddrIPFS)||Frame||AddrIPFS)
-        message = packedType + packedLengthFrames
+        strNodeName = self.getNodeName()
+        nSID = struct.pack('i', len(strNodeName))
+        # S||nFrameList||nData||SID,SIG(F||AddrIPFS),Frame,AddrIPFS
+        # S||nFrameList||nSID
+        bcastmessage = packedType + packedLengthFrames
         
+        priv = self.getOwnPrivateKey()
         for frame in listFrames:
-            print("temp)")
+            messageSign = f'{frame}{addrIPFS}'.encode("UTF-8")
+            sig = priv.sign_deterministic(
+                message = messageSign,
+                hashfunc=sha256
+            )
+            
+            sendMessage = bcastmessage + f'{strNodeName},{sig},{frame},{addrIPFS}'
+            self.__socketBroadcastSendFrame.sendto(sendMessage, ('<broadcast>', self.__nPort))
+            
