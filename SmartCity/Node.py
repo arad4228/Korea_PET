@@ -1,6 +1,6 @@
 from threading import Thread, Event, Lock
 from time import *
-from ecdsa_test import SigningKey, VerifyingKey, NIST256p
+from ecdsa import SigningKey, VerifyingKey, NIST256p
 from hashlib import sha256
 from collections import OrderedDict
 import socket
