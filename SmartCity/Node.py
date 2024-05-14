@@ -29,7 +29,7 @@ class NodeV:
     __listThread                    :list
     __dictReceivedFrames            :dict           # Received Frames "strNodeName" : [Frame, ...]
 
-    __ownIPAddress                  :str
+    __ownIP                         :str
     __nPort                         :int
     __socketReceived                :socket
     __socketBroadcastSendFrame      :socket
@@ -43,14 +43,23 @@ class NodeV:
         self.__listThread = list()
         self.__dictReceivedFrames = dict()
         self.__nPort = 9000
-        self.__ownIPAddress = ownIP
+        self.__ownIP = ownIP
         
         # 받고 보낼 소켓 생성
         self.__socketReceived = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.__socketBroadcastSendFrame = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        # 보내는 소켓은 BroadCast, 받는 소캣은 전부 수용하도록 설정
-        self.__socketReceived.bind((ownIP, self.__nPort))
+
+        # 보내는 소켓은 BroadCast, 받는 소켓은 전부 수용하도록 설정
+        self.__socketReceived.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.__socketReceived.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+        self.__socketReceived.bind((self.__ownIP, self.__nPort))
+
+        self.__socketBroadcastSendFrame.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.__socketBroadcastSendFrame.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
         self.__socketBroadcastSendFrame.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+
+        # 브로드캐스트 소켓을 0.0.0.0에 바인딩하여 모든 인터페이스로 브로드캐스트 가능하도록 설정
+        self.__socketBroadcastSendFrame.bind(("0.0.0.0", self.__nPort))
 
     def __image_to_bytes(self, image):
         img_byte_arr = io.BytesIO()
@@ -60,13 +69,13 @@ class NodeV:
 
     # Test 필요
     def __broadCastNodeData(self):
-        dict_data = {self.__strNodeName : {"IP": self.__ownIPAddress, "Role": self.__strNodeRole, "PublicKey" : self.__pubKeyNode}}
+        dict_data = {self.__strNodeName : {"IP": self.__ownIP, "Role": self.__strNodeRole, "PublicKey" : self.__pubKeyNode}}
         jsonNodeData = json.dumps(dict_data)
         nJsonNodeData = len(jsonNodeData)
         
         while True:
             # 특정 갯수에 도달했거나, E type의 메시지가 왔다면 종료.
-            self.__lockThread.aquire()
+            self.__lockThread.acquire()
             if len(self.__dictReceivedData) >= self.__nInitialNodeNumber or self.__eventSocket.is_set():
                 self.__lockThread.release()
                 print(f"Status::NodeList: {len(self.__dictReceivedData)}")
@@ -100,7 +109,7 @@ class NodeV:
     # Test 필요.
     def __receivedNodeData(self):
         while True:
-            self.__lockThread.aquire()
+            self.__lockThread.acquire()
             if len(self.__dictReceivedData) >= self.__nInitialNodeNumber:
                 self.__lockThread.release()
                 break
@@ -242,7 +251,7 @@ class NodeV:
 class NodeSV(NodeV):
     __strSensorURL          :str
     __ownIPFSUrl            :str
-    __dicttSensorData        :dict   #ex) [ "time": {"IPFSAddr": "addr", "Frames": []}, ....]
+    __dicttSensorData       :dict   #ex) [ "time": {"IPFSAddr": "addr", "Frames": []}, ....]
 
     def __init__(self, strNodeName  :str, ownIP, secreteFile ,strURL, strOwnIPFS):
         super().__init__(strNodeName, ownIP)
@@ -295,7 +304,6 @@ class NodeSV(NodeV):
                 current_time = cv2.getTickCount() / cv2.getTickFrequency()
                 if current_time - start_time >= timeDelay:
                     break
-                
             cap.release()
             out.release()
             # IPFS 업로드
