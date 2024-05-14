@@ -1,21 +1,34 @@
 #!/bin/bash
 
-# 인자로 전달된 숫자 확인
-if [ -z "$1" ]; then
-  echo "사용법: $0 <제거할 인터페이스 개수>"
+# 필요한 네임스페이스 수
+NUM_NAMESPACES=$1
+
+if [ -z "$NUM_NAMESPACES" ]; then
+  echo "Usage: $0 <number-of-namespaces>"
   exit 1
 fi
 
-NUM_INTERFACES=$1
+# 네임스페이스와 veth 인터페이스 삭제
+for i in $(seq 1 $NUM_NAMESPACES); do
+  NS="ns$i"
+  VETH_HOST="veth_host$i"
 
-# 더미 인터페이스 제거 루프
-for ((i=0; i<NUM_INTERFACES; i++))
-do
-  INTERFACE_NAME="dummy${i}"
-  
-  echo "제거 중: $INTERFACE_NAME"
-  
-  ip link delete $INTERFACE_NAME
+  # 네임스페이스 삭제
+  ip netns del $NS
+  if [ $? -ne 0 ]; then
+    echo "Failed to delete namespace $NS"
+  fi
+
+  # 호스트 측 veth 인터페이스 삭제
+  ip link del $VETH_HOST
+  if [ $? -ne 0 ]; then
+    echo "Failed to delete veth interface $VETH_HOST"
+  fi
 done
 
-echo "모든 인터페이스 제거 완료."
+# 브리지 삭제
+BRIDGE_NAME="br0"
+ip link set $BRIDGE_NAME down
+ip link del $BRIDGE_NAME
+
+echo "Virtual network teardown complete."

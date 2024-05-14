@@ -1,28 +1,69 @@
 #!/bin/bash
 
-# 인자로 전달된 숫자 확인
-if [ -z "$1" ]; then
-  echo "사용법: $0 <생성할 인터페이스 개수>"
+# 필요한 네임스페이스 수
+NUM_NAMESPACES=$1
+
+if [ -z "$NUM_NAMESPACES" ]; then
+  echo "Usage: $0 <number-of-namespaces>"
   exit 1
 fi
 
-NUM_INTERFACES=$1
+# 브리지 생성
+BRIDGE_NAME="br0"
+ip link add name $BRIDGE_NAME type bridge
+if [ $? -ne 0 ]; then
+  echo "Failed to create bridge $BRIDGE_NAME"
+  exit 1
+fi
+ip addr add 10.10.10.1/24 dev $BRIDGE_NAME
+ip link set $BRIDGE_NAME up
+if [ $? -ne 0 ]; then
+  echo "Failed to set bridge $BRIDGE_NAME up"
+  exit 1
+fi
 
-# iproute2 설치
-apt-get update
-apt-get install -y iproute2
+# 네임스페이스 생성 및 설정
+for i in $(seq 1 $NUM_NAMESPACES); do
+  NS="ns$i"
+  VETH_HOST="veth_host$i"
+  VETH_NS="veth_ns$i"
+  IP_NS="10.10.10.$((i+1))"
 
-# 더미 인터페이스 생성 루프
-for ((i=0; i<NUM_INTERFACES; i++))
-do
-  INTERFACE_NAME="dummy${i}"
-  IP_ADDRESS="192.168.1.$((i+1))/24"
-  
-  echo "생성 중: $INTERFACE_NAME, IP 주소: $IP_ADDRESS"
-  
-  ip link add $INTERFACE_NAME type dummy
-  ip addr add $IP_ADDRESS dev $INTERFACE_NAME
-  ip link set $INTERFACE_NAME up
+  # 네임스페이스 생성
+  ip netns add $NS
+  if [ $? -ne 0 ]; then
+    echo "Failed to create namespace $NS"
+    continue
+  fi
+
+  # veth 쌍 생성
+  ip link add $VETH_HOST type veth peer name $VETH_NS
+  if [ $? -ne 0 ]; then
+    echo "Failed to create veth pair $VETH_HOST and $VETH_NS"
+    ip netns del $NS
+    continue
+  fi
+
+  # veth 인터페이스를 네임스페이스에 연결
+  ip link set $VETH_NS netns $NS
+  if [ $? -ne 0 ]; then
+    echo "Failed to set $VETH_NS to namespace $NS"
+    ip link del $VETH_HOST
+    ip netns del $NS
+    continue
+  fi
+
+  # 네임스페이스 내부 인터페이스 설정
+  ip netns exec $NS ip addr add $IP_NS/24 dev $VETH_NS
+  ip netns exec $NS ip link set $VETH_NS up
+  ip netns exec $NS ip route add default via 10.10.10.1
+
+  # 호스트 측 인터페이스 설정
+  ip addr add 10.10.10.$((100 + i))/24 dev $VETH_HOST
+  ip link set $VETH_HOST up
+
+  # 브리지에 인터페이스 연결
+  ip link set $VETH_HOST master $BRIDGE_NAME
 done
 
-echo "모든 인터페이스 생성 완료."
+echo "Virtual network setup complete."
