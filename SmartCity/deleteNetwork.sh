@@ -8,27 +8,30 @@ if [ -z "$NUM_NAMESPACES" ]; then
   exit 1
 fi
 
-# 네임스페이스와 veth 인터페이스 삭제
+# 네임스페이스 및 veth 인터페이스 제거
 for i in $(seq 1 $NUM_NAMESPACES); do
   NS="ns$i"
   VETH_HOST="veth_host$i"
 
-  # 네임스페이스 삭제
+  # 네임스페이스 제거
   ip netns del $NS
   if [ $? -ne 0 ]; then
     echo "Failed to delete namespace $NS"
   fi
 
-  # 호스트 측 veth 인터페이스 삭제
+  # 호스트 측 veth 인터페이스 제거
   ip link del $VETH_HOST
   if [ $? -ne 0 ]; then
     echo "Failed to delete veth interface $VETH_HOST"
   fi
 done
 
-# 브리지 삭제
+# 브리지 제거
 BRIDGE_NAME="br0"
 ip link set $BRIDGE_NAME down
 ip link del $BRIDGE_NAME
+if [ $? -ne 0 ]; then
+  echo "Failed to delete bridge $BRIDGE_NAME"
+fi
 
-echo "Virtual network teardown complete."
+echo "Virtual network cleanup complete."

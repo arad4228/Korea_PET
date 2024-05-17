@@ -22,6 +22,11 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
+# IP 포워딩 및 브로드캐스트 설정
+sysctl -w net.ipv4.ip_forward=1
+echo 0 > /proc/sys/net/bridge/bridge-nf-call-iptables
+echo 0 > /proc/sys/net/bridge/bridge-nf-call-ip6tables
+
 # 네임스페이스 생성 및 설정
 for i in $(seq 1 $NUM_NAMESPACES); do
   NS="ns$i"
@@ -64,6 +69,12 @@ for i in $(seq 1 $NUM_NAMESPACES); do
 
   # 브리지에 인터페이스 연결
   ip link set $VETH_HOST master $BRIDGE_NAME
+
+  # 네임스페이스 내에서 브로드캐스트 주소 설정
+  ip netns exec $NS ip route add broadcast 10.10.10.255 dev $VETH_NS
 done
+
+# 브로드캐스트 및 P2P 통신을 위한 iptables 설정 (필요 시 추가)
+iptables -A FORWARD -i $BRIDGE_NAME -o $BRIDGE_NAME -j ACCEPT
 
 echo "Virtual network setup complete."
