@@ -1,6 +1,24 @@
 from Node import *
+# from KGC import *
+import sys
 
 if __name__ == "__main__":
-    pubSensorA = '503be5f47066ae161edf1cc74a18e1088bdc8a9d06f953ee992ead02e1da46c6ed0fa6b95a6b8040d6bed0e572425d0705209510b84fba4c89998078cd0aee8b'
-    SensorA = NodeSV(pubSensorA, 8080,"http://210.179.218.52:1935/live/148.stream/playlist.m3u8")
-    SensorA.getSensorData(10)
+    # nodeList = ["NodeA", "NodeB", "NodeC", "NodeD"]
+    # kgc = KGC()
+    # kgc.generatePrivPubkey(nodeList, len(nodeList))
+    
+    if sys.argc >= 4:
+        print("프로그램을 실행하기 위한 인자가 부족합니다.")
+        print("python3 main.py <NodeName> <NodeIP> <SecreteFileName> <Camera URL> <IPFS URL>")
+    
+    strNodeName = sys.argv[1]
+    strIP = sys.argv[2]
+    file = sys.argv[3]
+    
+    # strNodeName = 'NodeA'
+    # strIP = '10.0.0.1'
+    # file = 'Desktop/Korea_PET/SmartCity/NodeKeyPair.json'
+    
+    node = NodeSV(strNodeName, strIP, file, 'aaa', 'aaa')
+    node.setInitialNodeNumber(4)
+    node.networkInitialize()
