@@ -26,6 +26,7 @@ do
     
     # veth 인터페이스를 브리지에 연결
     ip link set veth$i master $BRIDGE_NAME
+    ip link set veth$i state UP
 done
 
 # 브리지에 IP 할당
