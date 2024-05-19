@@ -3,6 +3,8 @@ from time import *
 from ecdsa import SigningKey, VerifyingKey, NIST256p
 from hashlib import sha256
 from collections import OrderedDict
+from Crypto.Cipher import AES
+from Crypto.Util.Padding import pad, unpad
 import socket
 import datetime
 import struct
@@ -10,7 +12,8 @@ import io
 import json
 import cv2
 import requests
-import pprint 
+import pprint
+import os
 
 MAX_Size = 10000
 
@@ -26,6 +29,7 @@ class NodeV:
     __eventSocket                   :Event
     __listThread                    :list
     __dictReceivedFrames            :dict           # Received Frames "strNodeName" : [Frame, ...]
+    __IV                            :bytearray
 
     __ownIP                         :str
     __nPort                         :int
@@ -40,6 +44,7 @@ class NodeV:
         self.__eventSocket = Event()
         self.__listThread = list()
         self.__dictReceivedFrames = dict()
+        self.__IV   = b'0123456789101112'
         self.__nPort = 9000
         self.__ownIP = ownIP
         self.__nInitialNodeNumber = 0
@@ -64,7 +69,6 @@ class NodeV:
         img_byte_arr = img_byte_arr.getvalue()
         return img_byte_arr
 
-    # Test 필요
     def __broadCastNodeData(self):
         dict_data = {self.__strNodeName : {"IP": self.__ownIP, "Role": self.__strNodeRole, "PublicKey" : self.__pubKeyNode}}
         jsonNodeData = json.dumps(dict_data)
@@ -102,7 +106,6 @@ class NodeV:
         message = typeSendN + dataEncoded
         self.__socketBroadcastSend.sendto(message, (self.__broadCastIP, self.__nPort))
         
-    # Test 필요.
     def __receivedNodeData(self):
         while True:
             self.__lockThread.acquire_lock()
@@ -258,6 +261,7 @@ class NodeSV(NodeV):
     __strSensorURL          :str
     __ownIPFSUrl            :str
     __dicttSensorData       :dict   #ex) [ "time": {"IPFSAddr": "addr", "Frames": []}, ....]
+    __dictTimeKey           :dict   #ex) {"time":"Key"}
 
     def __init__(self, strNodeName  :str, ownIP, secreteFile ,strURL, strOwnIPFS):
         super().__init__(strNodeName, ownIP)
@@ -267,11 +271,27 @@ class NodeSV(NodeV):
         self.loadSecrete(secreteFile)
         self.__dicttSensorData = dict()
         
+    def __generateToken(self, pubkey):
+        nPubkey = len(pubkey)
+        randomBytes = os.urandom(nPubkey)
+        return randomBytes
+    
     def __uploadSensorDataIPFS(self, fileName):
         url = self.__ownIPFSUrl +'/api/v0/add'
-        file = {'file': open(fileName, 'rb')}
+        
+        pubkey = self.getOwnPublicKey()
+        token = self.__generateToken(pubkey)
+        key = pubkey ^ token
+        cipher = AES.new(key, AES.MODE_CBC, self.__IV)
+        
+        with open(fileName, 'rb') as f:
+            data = f.read()
+        ciphertext = cipher.encrypt(pad(data, AES.block_size))
+        
+        file = {'file': ciphertext}
         response = requests.post(url, files=file)
         if response.status_code == 200:
+            self.__dictTimeKey[fileName] = token
             return json.loads(response.text)
         else:
             raise Exception("영상을 IPFS에 올리지 못했습니다.")
