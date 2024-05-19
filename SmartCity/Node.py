@@ -10,9 +10,7 @@ import io
 import json
 import cv2
 import requests
-# import av
-# import subprocess
-# import shlex
+import pprint 
 
 MAX_Size = 10000
 
@@ -32,7 +30,7 @@ class NodeV:
     __ownIP                         :str
     __nPort                         :int
     __socketReceived                :socket
-    __socketBroadcastSendFrame      :socket
+    __socketBroadcastSend           :socket
 
     def __init__(self, strNodeName, ownIP):
         self.__strNodeName = strNodeName
@@ -44,23 +42,22 @@ class NodeV:
         self.__dictReceivedFrames = dict()
         self.__nPort = 9000
         self.__ownIP = ownIP
+        self.__nInitialNodeNumber = 0
+        self.__broadCastIP = ownIP[:3]+"255.255.255"
         
         # 받고 보낼 소켓 생성
         self.__socketReceived = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.__socketBroadcastSendFrame = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.__socketBroadcastSend = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
         # 보내는 소켓은 BroadCast, 받는 소켓은 전부 수용하도록 설정
         self.__socketReceived.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.__socketReceived.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
-        self.__socketReceived.bind((self.__ownIP, self.__nPort))
-
-        self.__socketBroadcastSendFrame.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.__socketBroadcastSendFrame.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
-        self.__socketBroadcastSendFrame.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-
-        # 브로드캐스트 소켓을 0.0.0.0에 바인딩하여 모든 인터페이스로 브로드캐스트 가능하도록 설정
-        self.__socketBroadcastSendFrame.bind(("0.0.0.0", self.__nPort))
-
+        self.__socketReceived.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        self.__socketReceived.bind(('', self.__nPort))
+        
+        self.__socketBroadcastSend.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        self.__socketBroadcastSend.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.__socketBroadcastSend.bind((self.__ownIP, 0))
+        
     def __image_to_bytes(self, image):
         img_byte_arr = io.BytesIO()
         image.save(img_byte_arr, format='PNG')
@@ -71,52 +68,51 @@ class NodeV:
     def __broadCastNodeData(self):
         dict_data = {self.__strNodeName : {"IP": self.__ownIP, "Role": self.__strNodeRole, "PublicKey" : self.__pubKeyNode}}
         jsonNodeData = json.dumps(dict_data)
-        nJsonNodeData = len(jsonNodeData)
+    
+        if self.__nInitialNodeNumber == 0:
+            raise Exception("초기 네트워크 노드 설정이 되어있지 않습니다.")
         
         while True:
             # 특정 갯수에 도달했거나, E type의 메시지가 왔다면 종료.
-            self.__lockThread.acquire()
+            self.__lockThread.acquire_lock()
             if len(self.__dictReceivedData) >= self.__nInitialNodeNumber or self.__eventSocket.is_set():
-                self.__lockThread.release()
+                self.__lockThread.release_lock()
                 print(f"Status::NodeList: {len(self.__dictReceivedData)}")
                 break
-            self.__lockThread.release()
+            self.__lockThread.release_lock()
             
             ## 모든 네트워크 대역에 Broadcast
-            # B||Size||dictData
+            # B||dictData
             typeSendB = struct.pack('c', b'B')
-            nData = struct.pack('Q', nJsonNodeData)
-            message = typeSendB + nData + jsonNodeData.encode('utf-8')
-            
+            message = typeSendB + jsonNodeData.encode('utf-8')
             # 모든 네트워크 대역에 Broadcast
-            self.__socketBroadcastSendFrame.sendto(message, ('<broadcast>', self.__nPort))
+            self.__socketBroadcastSend.sendto(message, (self.__broadCastIP, self.__nPort))
+            sleep(3)
 
         # 만약 누군가 끝났다고 Packet을 보내지 않았다면 아래를 수행.
         # 초기 노드들이 수집되었다면, 끝을 알리고, 다음을 진행.
         if not self.__eventSocket.is_set():
             typeSendE = struct.pack('c', b'E')
-            self.__socketBroadcastSendFrame.sendto(typeSendE ('<broadcast>', self.__nPort))
+            self.__socketBroadcastSend.sendto(typeSendE, (self.__broadCastIP, self.__nPort))
         
         # 자신이 가진 데이터를 모두 전송.
-        # N||Size||NodeList
-        nData = len(self.__dictReceivedData)
+        # N||NodeList
         typeSendN = struct.pack('c', b'N')
-        nMessageData = struct.pack('Q', nData)
         dataEncoded = json.dumps(self.__dictReceivedData).encode('utf-8')
-        message = typeSendN + nMessageData + dataEncoded
-        self.__socketBroadcastSendFrame.sendto(message, ('<broadcast>', self.__nPort))
+        message = typeSendN + dataEncoded
+        self.__socketBroadcastSend.sendto(message, (self.__broadCastIP, self.__nPort))
         
     # Test 필요.
     def __receivedNodeData(self):
         while True:
-            self.__lockThread.acquire()
-            if len(self.__dictReceivedData) >= self.__nInitialNodeNumber:
-                self.__lockThread.release()
+            self.__lockThread.acquire_lock()
+            if self.__dictReceivedData.__len__() >= self.__nInitialNodeNumber:
+                self.__lockThread.release_lock()
                 break
-            self.__lockThread.release()
-
+            self.__lockThread.release_lock()
+            
            # type, size check
-            initialData, addr = self.__socketReceived.recvfrom(9)
+            initialData, addr = self.__socketReceived.recvfrom(4096)
             message_type = struct.unpack('c', initialData[:1])[0]
             # End
             if message_type == b'E':
@@ -125,33 +121,43 @@ class NodeV:
                 break
             # Node Information
             elif message_type == b'B':
-                nData = struct.unpack('Q', initialData[1:])[0]
-                jsonData, addr = self.__socketReceived.recvfrom(nData)
+                jsonData = initialData[1:]
                 dictData = json.loads(jsonData.decode('utf-8'))
-                self.__dictReceivedData = self.__dictReceivedData.update(dictData)
-        
+                self.__dictReceivedData.update(dictData)
+
         # E 타입의 메시지를 받았다면, N 타입의 패킷을 수용하여, 노드정보 업데이트.
-        typeData, addr = self.__socketReceived.recvfrom(1)
-        message_type = struct.unpack('c', typeData)[0]
-        if message_type == b'N':
-            nData, addr = self.__socketReceived.recvfrom(8)
-            nData = struct.unpack('Q', nData)[0]
-            dictNodeData, addr = self.__socketReceived.recvfrom(nData)
-            dictNodeData = json.loads(dictNodeData.decode('UTF-8'))
-            oldDictSize = len(self.__dictReceivedData)
-            self.__dictReceivedData.update(dictNodeData)
-            print(f"State::업데이트 전 크기: {oldDictSize}, 업데이트 후 크기: {len(self.__dictReceivedData)}")
-        # 수정 필요
+        while True:
+            nodeListData, addr = self.__socketReceived.recvfrom(10240)
+            message_type = struct.unpack('c', nodeListData[:1])[0]
+            if message_type == b'N':
+                dictNodeData = json.loads(nodeListData[1:].decode('UTF-8'))
+                oldDictSize = len(self.__dictReceivedData)
+                self.__dictReceivedData.update(dictNodeData)
+                print(f"State::업데이트 전 크기: {oldDictSize}, 업데이트 후 크기: {len(self.__dictReceivedData)}")
+                break
+            else:
+                continue
     
     def networkInitialize(self):
-        self.__listThread.append(Thread(target=self.__broadCastNodeData))
-        self.__listThread.append(Thread(target=self.__receivedNodeData))
-        
-        for work in self.__listThread:
-            work.start()
-        
-        for work in self.__listThread:
-            work.join()
+        try:
+            send_thread = Thread(target=self.__broadCastNodeData)
+            recv_thrad = Thread(target=self.__receivedNodeData)
+            send_thread.daemon = True
+            recv_thrad.daemon = True
+            self.__listThread.append(send_thread)
+            self.__listThread.append(recv_thrad)
+            
+            for work in self.__listThread:
+                work.start()
+            
+            for work in self.__listThread:
+                work.join()
+            print("Done Network Initialized")
+            pprint.pprint(self.__dictReceivedData)
+        except Exception as e:
+            print(f"다음과 같은 오류가 발생했습니다.\n{e}")
+            self.__listThread.clear()
+            exit(1)
     
     def loadSecrete(self, file):
         with open(file, 'r') as f:
@@ -198,8 +204,8 @@ class NodeV:
                 typePacket = struct.unpack('c', typePacket[0])
                 if typePacket != b'S':
                     continue
+                
                 # S||nFrameList||nData||SID,SIG(F||AddrIPFS),Frame,AddrIPFS
-
                 totalFrames = self.__socketReceived.recv(8)
                 totalFrames = struct.unpack('Q', totalFrames[0])
                 nFrameSize = self.__socketReceived.recv(8)
@@ -273,12 +279,7 @@ class NodeSV(NodeV):
     def getSensorData(self, timeDelay):
         # Get Video Data
         timeCurrent = datetime.datetime.now().strftime("%Y-%m-%d.%H:%M:%S")
-        # command = f"ffmpeg -i {shlex.quote(self.__strSensorURL)} -t {timeDelay} -c copy {shlex.quote(f'{self.getNodeName()} {timeCurrent}.mp4')}"
-        # try:
-        # # subprocess를 사용하여 타임아웃 설정
-        #     process = subprocess.run(command, shell=True, timeout=timeDelay+5, text=True, capture_output=True)
-        #     if process.returncode != 0:
-        #         raise Exception(f"{self.getNodeName()}의 {timeCurrent}시간대 영상 저장 실패")
+        
         try:
             cap = cv2.VideoCapture(self.__strSensorURL)
             width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -304,6 +305,7 @@ class NodeSV(NodeV):
                 current_time = cv2.getTickCount() / cv2.getTickFrequency()
                 if current_time - start_time >= timeDelay:
                     break
+                
             cap.release()
             out.release()
             # IPFS 업로드
@@ -317,7 +319,7 @@ class NodeSV(NodeV):
             return current_time
             
         except Exception as e:
-            print(f"다음과 같은 예외가 발생했습니다. \n{e}")
+            print(f"다음과 같은 예외가 발생했습니다.\n{e}")
 
     def sendSensorData(self, timeSensor):
         collectionsSensorData = self.__dicttSensorData[timeSensor]
@@ -330,6 +332,7 @@ class NodeSV(NodeV):
         packedLengthFrames = struct.pack('Q', nListSensorFrame)
         strNodeName = self.getNodeName()
         nSID = struct.pack('i', len(strNodeName))
+        
         # S||nFrameList||nData||SID,SIG(F||AddrIPFS),Frame,AddrIPFS
         # S||nFrameList||nSID
         bcastmessage = packedType + packedLengthFrames
@@ -342,6 +345,6 @@ class NodeSV(NodeV):
                 hashfunc=sha256
             )
             
-            sendMessage = bcastmessage + f'{strNodeName},{sig},{frame},{addrIPFS}'
-            self.__socketBroadcastSendFrame.sendto(sendMessage, ('<broadcast>', self.__nPort))
+            sendMessage = bcastmessage + nSID + f'{strNodeName},{sig},{frame},{addrIPFS}'
+            self.__socketBroadcastSend.sendto(sendMessage, (self.__broadCastIP, self.__nPort))
             
