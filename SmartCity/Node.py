@@ -279,9 +279,9 @@ class NodeSV(NodeV):
     def __uploadSensorDataIPFS(self, fileName):
         url = self.__ownIPFSUrl +'/api/v0/add'
         
-        pubkey = self.getOwnPublicKey()
+        pubkey = self.getOwnPublicKey().to_string().encode('UTF-8')
         token = self.__generateToken(pubkey)
-        key = pubkey ^ token
+        key = bytes(a ^ b for a, b in zip(pubkey, token))
         cipher = AES.new(key, AES.MODE_CBC, self.__IV)
         
         with open(fileName, 'rb') as f:
