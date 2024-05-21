@@ -166,8 +166,8 @@ class NodeV:
         with open(file, 'r') as f:
             data = json.load(f)
             dictKeyPair = data[self.__strNodeName]
-            priv = list(dictKeyPair.keys())[0]
-            pub = dictKeyPair[priv]
+            priv = SigningKey.from_string(list(dictKeyPair.keys())[0])
+            pub = VerifyingKey.from_string(dictKeyPair[priv])
             self.__privKeyNode = priv
             self.__pubKeyNode = pub
                 
