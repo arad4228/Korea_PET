@@ -166,10 +166,15 @@ class NodeV:
         with open(file, 'r') as f:
             data = json.load(f)
             dictKeyPair = data[self.__strNodeName]
-            priv = SigningKey.from_string(list(dictKeyPair.keys())[0])
-            pub = VerifyingKey.from_string(dictKeyPair[priv])
-            self.__privKeyNode = priv
-            self.__pubKeyNode = pub
+            priv = list(dictKeyPair.keys())[0]
+            bytesPriv = bytes.fromhex(priv)
+            ownPriv = SigningKey.from_string(bytesPriv, curve=NIST256p)
+            pub = dictKeyPair[priv]
+            bytesPub = bytes.fromhex(pub)
+            ownPub = VerifyingKey.from_string(bytesPub, curve=NIST256p)
+            
+            self.__privKeyNode = ownPriv
+            self.__pubKeyNode = ownPub
                 
     def getOwnPrivateKey(self):
         return self.__privKeyNode
@@ -279,7 +284,7 @@ class NodeSV(NodeV):
     def __uploadSensorDataIPFS(self, fileName):
         url = self.__ownIPFSUrl +'/api/v0/add'
         
-        pubkey = self.getOwnPublicKey().to_string().encode('UTF-8')
+        pubkey = self.getOwnPublicKey().to_string()
         token = self.__generateToken(pubkey)
         key = bytes(a ^ b for a, b in zip(pubkey, token))
         cipher = AES.new(key, AES.MODE_CBC, self.__IV)
