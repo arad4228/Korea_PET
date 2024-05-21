@@ -20,13 +20,8 @@ if __name__ == "__main__":
     file = 'NodeKeyPair.json'
 
     node = NodeSV(strNodeName, strIP, file, 'http://210.179.218.52:1935/live/148.stream/playlist.m3u8', 'aaa')
-    # node.loadSecrete(file)
-    # node.loadSecrete(file)
     print(node.getOwnPrivateKey().to_string().hex())
-    # node = NodeSV(strNodeName, strIP, file, 'http://210.179.218.52:1935/live/147.stream/playlist.m3u8', 'aaa')
-    # node.setInitialNodeNumber(4)
-    # node.networkInitialize()
+
     time=node.getSensorData(10)
     node.sendSensorData(time)
     
-    #node.receivedSensorData(strNodeName)

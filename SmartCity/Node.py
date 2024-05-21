@@ -114,12 +114,9 @@ class NodeV:
         
     def __receivedNodeData(self):
         while True:
-            print(1111)
             self.__lockThread.acquire_lock()
-            print(2222)
             if self.__dictReceivedData.__len__() >= self.__nInitialNodeNumber:
                 self.__lockThread.release_lock()
-                print(3333)
                 break
             self.__lockThread.release_lock()
             
@@ -205,7 +202,7 @@ class NodeV:
     
     def receivedSensorData(self, strNodeName):
         print(f"{strNodeName}의 Frame을 수신합니다.")
-         # 노드의 공개키 찾기 추가하기
+        # 노드의 공개키 찾기 추가하기
         # nodeData = self.__dictReceivedData[strNodeName]
         # if nodeData == None:
         #     raise Exception(f"{strNodeName}은 네트워크에 존재하지 않는 노드이름입니다.")            
@@ -290,13 +287,6 @@ class NodeSV(NodeV):
     def __generateToken(self, pubkey):
         nPubkey = len(pubkey.to_string())#len(pubkey)
         randomBytes = os.urandom(nPubkey)
-        #return randomBytes.decode('utf-8')
-        #return str(randomBytes, 'utf-8')
-        #bytes(randomBytes, 'utf-8')
-        #return b64encode(randomBytes).decode('utf-8')
-        #r = bytes(randomBytes, 'utf-8')
-        print(type(randomBytes))
-        #return randomBytes.hex()
         return randomBytes
 
     def __uploadSensorDataIPFS(self, fileName):
@@ -306,7 +296,6 @@ class NodeSV(NodeV):
         token = self.__generateToken(pubkey)
         print(type(token))
         key = pubkey & token
-        #key = bytes(a ^ b for a, b in zip(pubkey, token)).encode('utf-8')
         cipher = AES.new(key, AES.MODE_CBC, self.__IV)
 
         with open(fileName, 'rb') as f:
@@ -343,20 +332,13 @@ class NodeSV(NodeV):
                 ret, frame = cap.read()
                 if not ret:
                     break
-                #resize_frame = cv2.resize(frame, dsize=(128, 72), interpolation=cv2.INTER_AREA)
-                #frame_byte_b64=base64.b64encode(resize_frame)
                 frame_byte_b64=cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
                 print(len(frame_byte_b64))
-                #frame_byte_b64=cv2.imencode('.webp', frame, [cv2.IMWRITE_WEBP_QUALITY, 100])
-
-                #print(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-                #print(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
                 frame_byte=bytearray(frame_byte_b64[1]).hex()
-                #frame_byte=pickle.dumps(frame_byte)
                 print(type(frame_byte))
                 print(len(frame_byte))
                 print(frame_byte[:100])
-                videoFrame.append(frame_byte)#.tobytes())
+                videoFrame.append(frame_byte)
                 out.write(frame)
                 
                 current_time = cv2.getTickCount() / cv2.getTickFrequency()
