@@ -14,6 +14,12 @@ import cv2
 import requests
 import pprint
 import os
+import numpy as np
+import traceback
+from base64 import b64encode
+import base64
+import pickle
+
 
 MAX_Size = 10000
 
@@ -108,9 +114,12 @@ class NodeV:
         
     def __receivedNodeData(self):
         while True:
+            print(1111)
             self.__lockThread.acquire_lock()
+            print(2222)
             if self.__dictReceivedData.__len__() >= self.__nInitialNodeNumber:
                 self.__lockThread.release_lock()
+                print(3333)
                 break
             self.__lockThread.release_lock()
             
@@ -172,10 +181,10 @@ class NodeV:
             pub = dictKeyPair[priv]
             bytesPub = bytes.fromhex(pub)
             ownPub = VerifyingKey.from_string(bytesPub, curve=NIST256p)
-            
-            self.__privKeyNode = ownPriv
-            self.__pubKeyNode = ownPub
-                
+
+        self.__privKeyNode = ownPriv
+        self.__pubKeyNode = ownPub
+
     def getOwnPrivateKey(self):
         return self.__privKeyNode
     
@@ -197,13 +206,14 @@ class NodeV:
     def receivedSensorData(self, strNodeName):
         print(f"{strNodeName}의 Frame을 수신합니다.")
          # 노드의 공개키 찾기 추가하기
-        nodeData = self.__dictReceivedData[strNodeName]
-        if nodeData == None:
-            raise Exception(f"{strNodeName}은 네트워크에 존재하지 않는 노드이름입니다.")            
-        pubKeyNode  = nodeData['PublicKey']
-        if pubKeyNode == None:
-            raise Exception(f"{strNodeName}의 공개키가 존재하지 않습니다.")
-        
+        # nodeData = self.__dictReceivedData[strNodeName]
+        # if nodeData == None:
+        #     raise Exception(f"{strNodeName}은 네트워크에 존재하지 않는 노드이름입니다.")            
+        # pubKeyNode  = nodeData['PublicKey']
+        # if pubKeyNode == None:
+        #     raise Exception(f"{strNodeName}의 공개키가 존재하지 않습니다.")
+        testKey = '5aa5e74167a468b756402958f8c7db6ee3f0349d6385e61d4649236a89474af13ce37fdbe847c59636d6506510c91e899c0e35dacd30db10fc0d3ee675b2aa79'
+        pubKeyNode=VerifyingKey.from_string(bytes.fromhex(testKey), curve=NIST256p)
         listFrameData = list()
         counter = 0
         try:
@@ -214,7 +224,8 @@ class NodeV:
                     continue
                 
                 # S||nFrameList||nData||SID,SIG(F||AddrIPFS),Frame,AddrIPFS
-                totalFrames = self.__socketReceived.recv(8)
+                totalFrames = self.__socketReceived.recv(5000) #packet lenth - +200~300
+                print(len(totalFrames))
                 totalFrames = struct.unpack('Q', totalFrames[0])
                 nFrameSize = self.__socketReceived.recv(8)
                 nFrameSize = struct.unpack('Q', nFrameSize[0]) # long long
@@ -277,18 +288,27 @@ class NodeSV(NodeV):
         self.__dicttSensorData = dict()
         
     def __generateToken(self, pubkey):
-        nPubkey = len(pubkey)
+        nPubkey = len(pubkey.to_string())#len(pubkey)
         randomBytes = os.urandom(nPubkey)
+        #return randomBytes.decode('utf-8')
+        #return str(randomBytes, 'utf-8')
+        #bytes(randomBytes, 'utf-8')
+        #return b64encode(randomBytes).decode('utf-8')
+        #r = bytes(randomBytes, 'utf-8')
+        print(type(randomBytes))
+        #return randomBytes.hex()
         return randomBytes
-    
+
     def __uploadSensorDataIPFS(self, fileName):
         url = self.__ownIPFSUrl +'/api/v0/add'
         
         pubkey = self.getOwnPublicKey().to_string()
         token = self.__generateToken(pubkey)
-        key = bytes(a ^ b for a, b in zip(pubkey, token))
+        print(type(token))
+        key = pubkey & token
+        #key = bytes(a ^ b for a, b in zip(pubkey, token)).encode('utf-8')
         cipher = AES.new(key, AES.MODE_CBC, self.__IV)
-        
+
         with open(fileName, 'rb') as f:
             data = f.read()
         ciphertext = cipher.encrypt(pad(data, AES.block_size))
@@ -310,7 +330,6 @@ class NodeSV(NodeV):
             width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
             height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
             fps = 40
-            
             # 영상을 내보내는 형식은 avi 형식으로
             fourcc = cv2.VideoWriter_fourcc(*'XVID')
             filePath = f'SavedVideo/{timeCurrent}.avi'
@@ -324,19 +343,32 @@ class NodeSV(NodeV):
                 ret, frame = cap.read()
                 if not ret:
                     break
-                videoFrame.append(frame)
+                #resize_frame = cv2.resize(frame, dsize=(128, 72), interpolation=cv2.INTER_AREA)
+                #frame_byte_b64=base64.b64encode(resize_frame)
+                frame_byte_b64=cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
+                print(len(frame_byte_b64))
+                #frame_byte_b64=cv2.imencode('.webp', frame, [cv2.IMWRITE_WEBP_QUALITY, 100])
+
+                #print(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                #print(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                frame_byte=bytearray(frame_byte_b64[1]).hex()
+                #frame_byte=pickle.dumps(frame_byte)
+                print(type(frame_byte))
+                print(len(frame_byte))
+                print(frame_byte[:100])
+                videoFrame.append(frame_byte)#.tobytes())
                 out.write(frame)
                 
                 current_time = cv2.getTickCount() / cv2.getTickFrequency()
                 if current_time - start_time >= timeDelay:
                     break
-                
             cap.release()
             out.release()
             # IPFS 업로드
-            res = self.__uploadSensorDataIPFS(filePath)
-            print(res)
-            IPFSDataHash = res['Hash']
+            #res = self.__uploadSensorDataIPFS(filePath)
+            #print(res)
+            
+            IPFSDataHash = 'aaaa' #res['Hash']
             innerJson = {"IPFSAddr":IPFSDataHash, "Frames": videoFrame}
             
             # "time": {"IPFSAddr": "addr", "Frames": []}
@@ -345,6 +377,7 @@ class NodeSV(NodeV):
             
         except Exception as e:
             print(f"다음과 같은 예외가 발생했습니다.\n{e}")
+            print(traceback.format_exc())
 
     def sendSensorData(self, timeSensor):
         collectionsSensorData = self.__dicttSensorData[timeSensor]
@@ -364,12 +397,25 @@ class NodeSV(NodeV):
         
         priv = self.getOwnPrivateKey()
         for frame in listFrames:
+            print(type(frame))
+            print(type(frame))
+            print(type(addrIPFS))
             messageSign = f'{frame}{addrIPFS}'.encode("UTF-8")
             sig = priv.sign_deterministic(
-                message = messageSign,
+                messageSign,
                 hashfunc=sha256
             )
             
-            sendMessage = bcastmessage + nSID + f'{strNodeName},{sig},{frame},{addrIPFS}'
-            self.__socketBroadcastSend.sendto(sendMessage, (self.__broadCastIP, self.__nPort))
+            print(len(bcastmessage))
+            print(len(nSID))
+            print(len(strNodeName))
+            print(len(sig))
+            print(len(frame))
+            print(len(addrIPFS))
             
+            SendMessage = bcastmessage.hex() + nSID.hex() + f'{strNodeName},{sig.hex()},{frame},{addrIPFS}'
+            bytesSendMessage=bytes(SendMessage, 'utf-8')
+            #self.__socketBroadcastSend.sendto(sendMessage, (self.__broadCastIP, self.__nPort))
+            print(len(bytesSendMessage))
+            self._NodeV__socketBroadcastSend.sendto(bytesSendMessage, (self._NodeV__broadCastIP, self._NodeV__nPort))
+           
