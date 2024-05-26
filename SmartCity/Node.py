@@ -73,7 +73,7 @@ class NodeV:
         return img_byte_arr
 
     def __broadCastNodeData(self):
-        dict_data = {self.__strNodeName : {"IP": self.ownIP, "Role": self.__strNodeRole, "PublicKey" : self.__pubKeyNode}}
+        dict_data = {self.__strNodeName : {"IP": self.ownIP, "Role": self.__strNodeRole, "PublicKey" : self.__pubKeyNode.to_string().hex()}}
         jsonNodeData = json.dumps(dict_data)
     
         if self.__nInitialNodeNumber == 0:
@@ -93,21 +93,21 @@ class NodeV:
             typeSendB = struct.pack('c', b'B')
             message = typeSendB + jsonNodeData.encode('utf-8')
             # 모든 네트워크 대역에 Broadcast
-            self.socketBroadcastSend.sendto(message, (self.__broadCastIP, self.nPort))
+            self.socketBroadcastSend.sendto(message, (self.broadCastIP, self.nPort))
             sleep(3)
 
         # 만약 누군가 끝났다고 Packet을 보내지 않았다면 아래를 수행.
         # 초기 노드들이 수집되었다면, 끝을 알리고, 다음을 진행.
         if not self.__eventSocket.is_set():
             typeSendE = struct.pack('c', b'E')
-            self.socketBroadcastSend.sendto(typeSendE, (self.__broadCastIP, self.nPort))
+            self.socketBroadcastSend.sendto(typeSendE, (self.broadCastIP, self.nPort))
         
         # 자신이 가진 데이터를 모두 전송.
         # N||NodeList
         typeSendN = struct.pack('c', b'N')
         dataEncoded = json.dumps(self.__dictReceivedData).encode('utf-8')
         message = typeSendN + dataEncoded
-        self.socketBroadcastSend.sendto(message, (self.__broadCastIP, self.nPort))
+        self.socketBroadcastSend.sendto(message, (self.broadCastIP, self.nPort))
         
     def __receivedNodeData(self):
         while True:
@@ -204,15 +204,12 @@ class NodeV:
     def receivedSensorData(self, strNodeName):
         print(f"{strNodeName}의 Frame을 수신합니다.")
         # 노드의 공개키 찾기 추가하기
-        # nodeData = self.__dictReceivedData[strNodeName]
-        # if nodeData == None:
-        #     raise Exception(f"{strNodeName}은 네트워크에 존재하지 않는 노드이름입니다.")            
-        # pubKeyNode  = nodeData['PublicKey']
-        # if pubKeyNode == None:
-        #     raise Exception(f"{strNodeName}의 공개키가 존재하지 않습니다.")
-        
-        testKey = '8063eeafdccd2dd0c6a121824ab966482be2934b02a6bef0112aaa53e9c85c930ff5c701c7493f0190849dfc8f6f7bf9e4f09f044eaf7418adb8bf4ea94fff2a'
-        pubKeyNode=VerifyingKey.from_string(bytes.fromhex(testKey), curve=NIST256p)
+        nodeData = self.__dictReceivedData[strNodeName]
+        if nodeData == None:
+            raise Exception(f"{strNodeName}은 네트워크에 존재하지 않는 노드이름입니다.")            
+        pubKeyNode=VerifyingKey.from_string(bytes.fromhex(nodeData['PublicKey']), curve=NIST256p)
+        if pubKeyNode == None:
+            raise Exception(f"{strNodeName}의 공개키가 존재하지 않습니다.")
         
         listFrameData = list()
         counter = 1
@@ -292,28 +289,31 @@ class NodeSV(NodeV):
         self.setNodeRole("Sensor")
         self.loadSecrete(secreteFile)
         self.__dicttSensorData = dict()
+        self.__dictTimeKey = dict()
         
     def __generateToken(self, pubkey):
-        nPubkey = len(pubkey.to_string())#len(pubkey)
+        nPubkey = len(pubkey)
         randomBytes = os.urandom(nPubkey)
         return randomBytes
 
     def __uploadSensorDataIPFS(self, fileName):
         url = self.__ownIPFSUrl +'/api/v0/add'
         
-        pubkey = self.getOwnPublicKey().to_string()
-        token = self.__generateToken(pubkey)
+        pubkey = self.getOwnPublicKey().to_string()[:16]
+        token = self.__generateToken(pubkey)[:16]
         key = bytes(a ^ b for a, b in zip(pubkey, token))
-        cipher = AES.new(key, AES.MODE_CBC, self.__IV)
+        cipher = AES.new(key, AES.MODE_CBC, self.IV)
 
         with open(fileName, 'rb') as f:
             data = f.read()
         ciphertext = cipher.encrypt(pad(data, AES.block_size))
         
         file = {'file': ciphertext}
+        # params = {'wrap-with-directory': 'true'}
         response = requests.post(url, files=file)
         if response.status_code == 200:
             self.__dictTimeKey[fileName] = token
+            print("Upload Done")
             return json.loads(response.text)
         else:
             raise Exception("영상을 IPFS에 올리지 못했습니다.")
@@ -358,10 +358,10 @@ class NodeSV(NodeV):
             out.release()
             
             # IPFS 업로드
-            #res = self.__uploadSensorDataIPFS(filePath)
-            #print(res)
+            res = self.__uploadSensorDataIPFS(filePath)
+            print(res)
             
-            IPFSDataHash = 'aaaa' #res['Hash']
+            IPFSDataHash = res['Hash']
             innerJson = {"IPFSAddr":IPFSDataHash, "Frames": videoFrame}
             
             # "time": {"IPFSAddr": "addr", "Frames": []}
@@ -408,3 +408,4 @@ class NodeSV(NodeV):
                 self.socketBroadcastSend.sendto(message, (self.broadCastIP, self.nPort))
                 sleep(0.01)                
             self.socketBroadcastSend.sendto(b"EndFrame", (self.broadCastIP, self.nPort))
+        print("Send Done")

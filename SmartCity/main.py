@@ -3,25 +3,30 @@ from Node import *
 import sys
 
 if __name__ == "__main__":
-    # nodeList = ["NodeA", "NodeB", "NodeC", "NodeD"]
+    # nodeList = ["NodeA", "NodeB", "NodeC", "NodeD", "NodeE"]
     # kgc = KGC()
     # kgc.generatePrivPubkey(nodeList, len(nodeList))
     
-    # if sys.argc >= 4:
-    #     print("프로그램을 실행하기 위한 인자가 부족합니다.")
-    #     print("python3 main.py <NodeName> <NodeIP> <SecreteFileName> <Camera URL> <IPFS URL>")
+    if len(sys.argv) <= 4:
+        print("프로그램을 실행하기 위한 인자가 부족합니다.")
+        print("python3 main.py <NodeName> <NodeIP> <SecreteFileName> <Camera URL> <IPFS URL>")
+        exit(-1)
     
-    # strNodeName = sys.argv[1]
-    # strIP = sys.argv[2]
-    # file = sys.argv[3]
+    strNodeName = sys.argv[1]
+    strIP = sys.argv[2]
+    file = sys.argv[3]
+    cameraURL = sys.argv[4] # http://210.179.218.52:1935/live/148.stream/playlist.m3u8
+    IPFSAddr = sys.argv[5]
     
-    strNodeName = 'NodeA'
-    strIP = '10.0.0.1'
-    file = 'NodeKeyPair.json'
-
-    node = NodeSV(strNodeName, strIP, file, 'http://210.179.218.52:1935/live/148.stream/playlist.m3u8', 'aaa')
-    print(node.getOwnPrivateKey().to_string().hex())
-
-    time=node.getSensorData(10)
-    node.sendSensorData(time)
+    node = NodeSV(strNodeName, strIP, file, cameraURL, IPFSAddr)
+    nNode = int(input("초기 네트워크 설정인원을 입력해주세요: "))
+    node.setInitialNodeNumber(nNode)
+    node.networkInitialize()
     
+    if strNodeName == "NodeA":
+        time = node.getSensorData(10)
+        print(time)
+        node.sendSensorData(time)
+    else:
+        node.receivedSensorData('NodeA') 
+        print(f"Calculate Merkle Tree:{node.calculateMerkleTree('NodeA')}")
