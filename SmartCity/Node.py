@@ -51,7 +51,7 @@ class NodeV:
         self.ownIP = ownIP
         self.__nInitialNodeNumber = 0
         self.broadCastIP = ownIP[:3]+"255.255.255"
-        self.sendFrameBytes = 1024
+        self.sendFrameBytes = 61440
         
         # 받고 보낼 소켓 생성
         self.socketReceived = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -118,7 +118,9 @@ class NodeV:
             self.__lockThread.release_lock()
             
            # type, size check
-            initialData, addr = self.socketReceived.recvfrom(4096)
+            initialData, addr = self.socketReceived.recvfrom(61440)
+            if addr[0] == self.ownIP:
+                continue
             message_type = struct.unpack('c', initialData[:1])[0]
             # End
             if message_type == b'E':
@@ -133,13 +135,15 @@ class NodeV:
 
         # E 타입의 메시지를 받았다면, N 타입의 패킷을 수용하여, 노드정보 업데이트.
         while True:
-            nodeListData, addr = self.socketReceived.recvfrom(10240)
+            nodeListData, addr = self.socketReceived.recvfrom(61440)
+            if addr[0] == self.ownIP:
+                continue
             message_type = struct.unpack('c', nodeListData[:1])[0]
             if message_type == b'N':
                 dictNodeData = json.loads(nodeListData[1:].decode('UTF-8'))
                 oldDictSize = len(self.__dictReceivedData)
                 self.__dictReceivedData.update(dictNodeData)
-                print(f"State::업데이트 전 크기: {oldDictSize}, 업데이트 후 크기: {len(self.__dictReceivedData)}")
+                print(f"업데이트 전 크기: {oldDictSize}, 업데이트 후 크기: {len(self.__dictReceivedData)}")
                 break
             else:
                 continue
@@ -207,15 +211,17 @@ class NodeV:
         # if pubKeyNode == None:
         #     raise Exception(f"{strNodeName}의 공개키가 존재하지 않습니다.")
         
-        # testKey = '8063eeafdccd2dd0c6a121824ab966482be2934b02a6bef0112aaa53e9c85c930ff5c701c7493f0190849dfc8f6f7bf9e4f09f044eaf7418adb8bf4ea94fff2a'
-        # pubKeyNode=VerifyingKey.from_string(bytes.fromhex(testKey), curve=NIST256p)
+        testKey = '8063eeafdccd2dd0c6a121824ab966482be2934b02a6bef0112aaa53e9c85c930ff5c701c7493f0190849dfc8f6f7bf9e4f09f044eaf7418adb8bf4ea94fff2a'
+        pubKeyNode=VerifyingKey.from_string(bytes.fromhex(testKey), curve=NIST256p)
         
         listFrameData = list()
-        counter = 0
+        counter = 1
         try:
             while True:
                 # S||nFrameList||SID,SIG(F||AddrIPFS),AddrIPFS
                 receivedData, addr = self.socketReceived.recvfrom(4096)
+                if addr[0] == self.ownIP:
+                    continue
                 typePacket = struct.unpack('c', receivedData[:1])[0]
                 if typePacket != b'S':
                     continue
@@ -233,20 +239,20 @@ class NodeV:
                 frame = b''
                 while True:
                     receivedFrame, addr = self.socketReceived.recvfrom(self.sendFrameBytes)
-                    if receivedFrame == b'E':
+                    if addr[0] == self.ownIP:
+                        continue
+                    if receivedFrame == b'EndFrame':
                         break
                     frame = frame + receivedFrame
-                # with open('reframe.txt', 'w') as f:
-                #     f.write(frame.hex())
                 
                 message = f'{frame}{addrIPFS}'.encode("UTF-8")
                 ret = pubKeyNode.verify(bytes.fromhex(signature), message, sha256)
                 if not ret:
-                    raise Exception(f"{pubKeyNode}의 {addrIPFS}의 서명 검증에 실패했습니다.")
+                    raise Exception(f"{pubKeyNode}의 {addrIPFS}의 서명 검 증에 실패했습니다.")
                 
                 listFrameData.append(frame)
+                print(f'현재 검증 진행한 Frame:{counter}, 전체 Frame:{totalFrames}')
                 counter += 1
-                print(f'현재:{counter}, 전체:{totalFrames}')
                 
             self.__dictReceivedFrames[strNodeName] = listFrameData
             print(f"{strNodeName}의 총 {totalFrames} Frame을 저장하였습니다.")
@@ -259,13 +265,13 @@ class NodeV:
         listHashData = list()
         
         for frame in listRecedFrame:
-            listHashData.append(sha256(frame.encode("UTF-8")).digest())
+            listHashData.append(sha256(frame).digest())
         
         while len(listHashData) != 1:
             if len(listHashData) % 2 != 0:
                 listHashData.append(listHashData[-1])
                 
-            for i in range(len(listHashData//2)):
+            for i in range(len(listHashData)//2):
                 left = listHashData.pop(0)
                 right = listHashData.pop(0)
                 listHashData.append(sha256(f'{left.hex()}{right.hex()}'.encode('UTF-8')).digest())
@@ -382,8 +388,6 @@ class NodeSV(NodeV):
         
         priv = self.getOwnPrivateKey()
         for frame in listFrames:
-            # with open('frame.txt', 'w') as f:
-            #     f.write(frame.hex())
             messageSign = f'{frame}{addrIPFS}'.encode("UTF-8")
             sig = priv.sign_deterministic(
                 messageSign,
@@ -398,7 +402,9 @@ class NodeSV(NodeV):
                 sendCount = len(frame) // self.sendFrameBytes + 1
             else:
                 sendCount = len(frame) // self.sendFrameBytes
-            
+                
             for i in range(sendCount):
-                self.socketBroadcastSend.sendto(frame[i*1024:(i+1)*1024], (self.broadCastIP, self.nPort))
-            self.socketBroadcastSend.sendto(b"E", (self.broadCastIP, self.nPort))
+                message = frame[i*self.sendFrameBytes:(i+1)*self.sendFrameBytes]
+                self.socketBroadcastSend.sendto(message, (self.broadCastIP, self.nPort))
+                sleep(0.01)                
+            self.socketBroadcastSend.sendto(b"EndFrame", (self.broadCastIP, self.nPort))
