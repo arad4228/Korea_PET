@@ -16,6 +16,9 @@ contract Vote {
     require(msg.sender == owner,"Caller is not owner");
     _;
     }
+
+    //@ 투표 결과 업로드
+    event UploadResult(uint,address,uint,string);
    
     //@ 참여 노드 등록 : 0 <- 등록 전 ,1 <- 등록 후
     struct Node{
@@ -31,7 +34,7 @@ contract Vote {
         uint Sid; // Sensor's identifiable ID
         uint Time; // Media recording time
         address proposer; // 제안자
-        string ipfsaddres; // IPFS link : https://scholar.google.com/
+        string ipfsaddres; // IPFS link : https://ipfs.io/ipfs/bafybeiemxf5abjwjbikoz4mc3a3dla6ual3jsgpdr4cjr3oz3evfyavhwq/wiki/Vincent_van_Gogh.html
         bytes merkleHash; // 0xf117c908948ad7ab51e7dbc6a98d4d7199c24b92602b8844c423f44ac5764c
         uint Count; // 투표 하면 올라가게
         uint proposercount; // 몇번쨰 제안
@@ -85,10 +88,9 @@ contract Vote {
     
     //@ Client정보 조회
     function forclient (uint Time)external view returns(uint , uint ,string memory ,bytes memory ){
-        console.log(votecontrol[Time].selectedproposecount);
+        require(votecontrol[Time].agreement ==1,'This time has not been completed');//Agreement에 도달한 시간대 이후 재 투표 방지
         return (proposers[Time][votecontrol[Time].selectedproposecount].Sid,proposers[Time][votecontrol[Time].selectedproposecount].Time,proposers[Time][votecontrol[Time].selectedproposecount].ipfsaddres,proposers[Time][votecontrol[Time].selectedproposecount].merkleHash);
- 
-    }
+     }
     
     //@ 제안, 시간대 time 에 대한 제안 및 투표
     function Proposal(uint Sid, uint Time, string memory ipfsaddres, bytes memory merkleHash)public {
@@ -138,7 +140,8 @@ contract Vote {
             if (votecontrol[Time].agreement ==0 ) { //이미 Agreement가 이루어진 T 대는 조회 안함
                 uint allnode = showsignednode();
                 uint b =2;
-                uint target = b.div(allnode); //uint result = b.div(a); // a/b , 버림 
+                //uint target = b.div(allnode); //uint result = b.div(a); // a/b , 버림 
+                uint target =6;
                 uint votecount = proposers[Time][i].Count;
                 if(votecount >=target ) {
                     console.log("Congratulation! Voting Finish!");
@@ -150,6 +153,7 @@ contract Vote {
                     console.log("Agree Nodes:",votecount);
                     votecontrol[Time].agreement = 1; // Agreement 에 도달하면, 값을  0 -> 1 로 변경
                     votecontrol[Time].selectedproposecount=i; // Agreement 도달한 제안의 순서를 저장 
+                    emit UploadResult(Time,proposers[Time][i].proposer,proposers[Time][i].Sid,proposers[Time][i].ipfsaddres);
                     return (Time,proposers[Time][i].proposer,proposers[Time][i].Sid,proposers[Time][i].ipfsaddres);
                 }
             }
@@ -161,7 +165,7 @@ contract Vote {
     contract Search {       
     
         Vote forclient; 
-        function clientquery (address _voteaddr, uint Time) public returns(uint , uint ,string memory ,bytes memory ){
+        function QueryStoredData (address _voteaddr, uint Time) public returns(uint , uint ,string memory ,bytes memory ){
             forclient = Vote(_voteaddr);
             return forclient.forclient(Time);            
         }

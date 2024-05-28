@@ -1,8 +1,9 @@
 from ecdsa import SigningKey, VerifyingKey, NIST256p
 from collections import OrderedDict
 from web3 import Web3
-from solcx import install_solc, compile_source
+from solcx import install_solc, set_solc_version, compile_source
 import json
+import os
 
 class KGC:
     __pubkeyKGC             :VerifyingKey
@@ -38,7 +39,7 @@ class KGC:
             json.dump(dictNdoeList, f)
     
     def loadSmartContract(self, fileName):
-        with open(fileName, 'w') as f:
+        with open(fileName, 'r') as f:
             self.__strsmartContract = f.read()
                 
     def deploySmartContact(self, addressEth, socketW3, versionSolc):
@@ -50,15 +51,28 @@ class KGC:
             # KGC의 계정은 0번
             self.__accountKGC = self.__web3.eth.accounts[0]
             
-            install_solc(version=f'{versionSolc}')
-            compileSol = compile_source(f'{self.__strsmartContract}', output_values=['abi', 'bin'], solc_version=versionSolc)
+            install_solc(versionSolc)
+            set_solc_version(versionSolc)
+            node_modules_path = os.path.join(os.getcwd(), "node_modules")
+
+            compileSol = compile_source(
+                f'{self.__strsmartContract}', 
+                output_values=['abi', 'bin'], 
+                allow_paths=[node_modules_path],
+                solc_version=versionSolc,
+                import_remappings=[
+                    f"hardhat={os.path.join(node_modules_path, 'hardhat')}",
+                    f"@openzeppelin={os.path.join(node_modules_path, '@openzeppelin')}"
+                ]                
+            )
+
             contractId, contractInterface = compileSol.popitem()
             bytecode = contractInterface['bin']
             abi = contractInterface['abi']
 
             self.__smartContract = self.__web3.eth.contract(abi=abi, bytecode=bytecode)
             # Contract 배포
-            receiptTX  = self.__smartContract.constructor().transact()
+            receiptTX  = self.__smartContract.constructor().transact() #error!!!
             print(f"{addressEth}의 ETH에 다음과 같은 Smart Contract가 배포되었습니다.\n{receiptTX}")
             
             contractData = OrderedDict()

@@ -14,7 +14,6 @@ import cv2
 import requests
 import pprint
 import os
-import traceback
 
 
 MAX_Size = 10000
@@ -245,7 +244,7 @@ class NodeV:
                 message = f'{frame}{addrIPFS}'.encode("UTF-8")
                 ret = pubKeyNode.verify(bytes.fromhex(signature), message, sha256)
                 if not ret:
-                    raise Exception(f"{pubKeyNode}의 {addrIPFS}의 서명 검 증에 실패했습니다.")
+                    raise Exception(f"{pubKeyNode}의 {counter}번째 frame 검증에 실패했습니다.")
                 
                 listFrameData.append(frame)
                 print(f'현재 검증 진행한 Frame:{counter}, 전체 Frame:{totalFrames}')
