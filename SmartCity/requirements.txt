@@ -28,8 +28,8 @@ eth-hash==0.7.0
 eth-keyfile==0.8.1
 eth-keys==0.5.1
 eth-rlp==1.0.1
-eth-typing==4.2.2
-eth-utils==4.1.0
+eth-typing==4.2.3
+eth-utils==4.1.1
 eth_abi==5.1.0
 exceptiongroup==1.2.1
 executing==2.0.1
