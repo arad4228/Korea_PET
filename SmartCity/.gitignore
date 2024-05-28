@@ -12,3 +12,8 @@ SavedVideo
 
 ## HLS List
 hls_list.json
+
+## npm
+node_modules
+package-lock.json
+package.json
