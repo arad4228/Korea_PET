@@ -90,6 +90,15 @@ class TA:
                     innerDict['contractAddr'] = contractTxReceipt.contractAddress
                     if 'Vote' in contract_id:
                         contractData['Vote'] = innerDict
+
+                        self.__contractVote = self.__web3.eth.contract(
+                            address=contractTxReceipt.contractAddress,
+                            abi=contract_interface['abi']
+                        )
+
+                        # erc-20 mint call
+                        self.__contractVote.functions.erc20mint().call()
+                        print("Vote Contract에 ERC-20이 발행되었습니다.")
                     else:
                         contractData['Search'] = innerDict
 

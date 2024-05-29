@@ -6,17 +6,14 @@ from collections import OrderedDict
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import pad, unpad
 from pprint import pprint
+from web3 import Web3
 import socket
 import datetime
 import struct
-import io
 import json
 import cv2
 import requests
 import os
-
-
-MAX_Size = 10000
 
 ## Verification Node
 class NodeV:
@@ -36,8 +33,9 @@ class NodeV:
     nPort                           :int
     socketReceived                  :socket
     socketBroadcastSend             :socket
+    web3                            :Web3
 
-    def __init__(self, strNodeName, ownIP):
+    def __init__(self, strNodeName, ownIP, addrEth, socketW3):
         self.__strNodeName = strNodeName
         self.__strNodeRole = 'Validator'
         self.__dictReceivedData = OrderedDict()
@@ -64,12 +62,9 @@ class NodeV:
         self.socketBroadcastSend.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
         self.socketBroadcastSend.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.socketBroadcastSend.bind((self.ownIP, 0))
-        
-    def __image_to_bytes(self, image):
-        img_byte_arr = io.BytesIO()
-        image.save(img_byte_arr, format='PNG')
-        img_byte_arr = img_byte_arr.getvalue()
-        return img_byte_arr
+
+        # web3 connect
+        self.web3 = Web3(Web3.HTTPProvider(f'{addrEth}:{socketW3}'))
 
     def __broadCastNodeData(self):
         dict_data = {self.__strNodeName : {"IP": self.ownIP, "Role": self.__strNodeRole, "PublicKey" : self.__pubKeyNode.to_string().hex()}}
@@ -168,8 +163,8 @@ class NodeV:
             self.__listThread.clear()
             exit(1)
     
-    def loadSecrete(self, file):
-        with open(file, 'r') as f:
+    def loadSecrete(self):
+        with open('NodeKeyPair.json', 'r') as f:
             data = json.load(f)
             dictKeyPair = data[self.__strNodeName]
             priv = list(dictKeyPair.keys())[0]
@@ -281,12 +276,12 @@ class NodeSV(NodeV):
     __dicttSensorData       :dict   #ex) [ "time": {"IPFSAddr": "addr", "Frames": []}, ....]
     __dictTimeKey           :dict   #ex) {"time":"Key"}
 
-    def __init__(self, strNodeName  :str, ownIP, secreteFile ,strURL, strOwnIPFS):
-        super().__init__(strNodeName, ownIP)
+    def __init__(self, strNodeName  :str, ownIP, strURL, strOwnIPFS, addrEth, sockEth):
+        super().__init__(strNodeName, ownIP, addrEth, sockEth)
         self.__strSensorURL = strURL
         self.__ownIPFSUrl = strOwnIPFS
         self.setNodeRole("Sensor")
-        self.loadSecrete(secreteFile)
+        self.loadSecrete()
         self.__dicttSensorData = dict()
         self.__dictTimeKey = dict()
         
