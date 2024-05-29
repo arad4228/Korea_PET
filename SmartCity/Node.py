@@ -5,6 +5,7 @@ from hashlib import sha256
 from collections import OrderedDict
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import pad, unpad
+from pprint import pprint
 import socket
 import datetime
 import struct
@@ -12,7 +13,6 @@ import io
 import json
 import cv2
 import requests
-import pprint
 import os
 
 
@@ -162,7 +162,7 @@ class NodeV:
             for work in self.__listThread:
                 work.join()
             print("Done Network Initialized")
-            pprint.pprint(self.__dictReceivedData)
+            pprint(self.__dictReceivedData, indent=4)
         except Exception as e:
             print(f"다음과 같은 오류가 발생했습니다.\n{e}")
             self.__listThread.clear()
