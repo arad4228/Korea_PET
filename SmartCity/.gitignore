@@ -1,3 +1,7 @@
+## MAC
+.DS_Store
+../DS_Store
+
 ## python cache file
 __pycache__ 
 
