@@ -4,4 +4,4 @@
 3. sudo apt install python-opencv
 
 # 이더리움 동작시키기
-ganache -h 0.0.0.0 -p 8545 --verbose --logging.file ./log/logfile.log  -a 100
+ganache -h 0.0.0.0 -p 8545 -v -a 100 --db ./EthData/ChainDB/ --logging.file ./EthData/log/logfile.log
