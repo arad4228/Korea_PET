@@ -16,6 +16,9 @@ hls_list.json
 ## SmartContract
 SmartContract_data.json
 
+## Ganache Data
+EthData
+
 ## npm
 node_modules
 package-lock.json
