@@ -5,15 +5,15 @@ import sys
 if __name__ == "__main__":
 
     if sys.argv[1] == 'TA':
-        ta = TA('http://10.16.134.41', 8545)
-        ta.getEthBlockInfo()
+        ta = TA(f'http://{sys.argv[2]}', 8545)
+        # ta.getEthBlockInfo()
         # TA로부터 keypair 발급
         # nodeList = ["NodeA", "NodeB", "NodeC", "NodeD", "NodeE"]
         # TA.generatePrivPubkey(nodeList, len(nodeList))
         
         # TA가 SmartContract 배퐆
-        # ta.loadSmartContract('contract.sol')
-        # ta.deploySmartContact('0.8.20')
+        ta.loadSmartContract('contract.sol')
+        ta.deploySmartContact('0.8.20')
 
 
     elif 'Node' in sys.argv[1]:

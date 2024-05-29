@@ -99,5 +99,11 @@ class TA:
         except Exception as e:
             print(e)
     
-    def getEthBlockInfo(self):
+    def printEthBlockInfo(self):
         pprint(dict(self.__web3.eth.get_block('latest')), indent=4)
+
+    def printAllAcountInfo(self):
+        accounts = self.__web3.eth.accounts
+        for account in accounts:
+            balance = self.__web3.eth.get_balance(account)
+            print(f'{account}: {balance}')
