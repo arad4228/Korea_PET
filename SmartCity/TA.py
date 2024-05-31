@@ -27,7 +27,6 @@ class TA:
         self.__web3.eth.default_account = self.__web3.eth.accounts[0]
         self.__strsmartContract = None
        
-    
     def generatePrivPubkey(self, listNodeName, nClient):
         # "ID" : {"Priv": "Pub"}
         listPrivKeys = []
@@ -108,6 +107,15 @@ class TA:
         except Exception as e:
             print(e)
     
+    def finishVoting(self):
+        try:
+            while True:
+                time = int(input("투표를 마무리할 시간대를 입력해주세요: "))
+                self.__contractVote.functions.VoteResult( time).transact()
+                print(f"{time}시간대 투표가 마무리되었습니다.")
+        except KeyboardInterrupt:
+            return
+    
     def printEthBlockInfo(self):
         pprint(dict(self.__web3.eth.get_block('latest')), indent=4)
 
@@ -116,3 +124,4 @@ class TA:
         for account in accounts:
             balance = self.__web3.eth.get_balance(account)
             print(f'{account}: {balance}')
+            
