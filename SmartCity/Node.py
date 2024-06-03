@@ -64,7 +64,7 @@ class NodeV:
         self.socketBroadcastSend.bind((self.ownIP, 0))
 
         # web3 connect
-        self.web3 = Web3(Web3.HTTPProvider(f'{addrEth}:{socketW3}'))
+        self.web3 = Web3(Web3.HTTPProvider(f'http://{addrEth}:{socketW3}'))
 
     def __broadCastNodeData(self):
         dict_data = {self.__strNodeName : {"IP": self.ownIP, "Role": self.__strNodeRole, "PublicKey" : self.__pubKeyNode.to_string().hex()}}
@@ -270,34 +270,46 @@ class NodeV:
         return listHashData[0].hex()            
 
     def loadContractData(self):
-        # 계정 부여
-        self.__accountNumer = (self.__strNodeName[3]- 'A') + 1
-        self.web3.eth.account = self.web3.eth.accounts[self.__accountNumer]
+        try:
+            if not self.web3.is_connected():
+                raise Exception("이더리움과 연결이 되어있지 않습니다.")
+            
+            # 계정 부여
+            self.__accountNumer = ord(self.__strNodeName[4]) - ord('A') + 1
+            self.web3.eth.default_account = self.web3.eth.accounts[self.__accountNumer]
 
-        with open('SmartContract_Data.json', 'r') as f:
-            data = json.load(f)
-            voteABI = data['Vote']['abi']
-            voteAddr = data['Vote']['contractAddr']
-            self.__contractVote = self.web3.eth.contract(
-                address=voteAddr,
-                abi=voteABI
-            )
-            searchABI = data['Search']['abi']
-            searchAddr = data['Search']['contractAddr']
-            self.__contractSearch = self.web3.eth.contract(
-                address=searchAddr,
-                abi=searchABI
-            )
+            with open('SmartContract_Data.json', 'r') as f:
+                data = json.load(f)
+                voteABI = data['Vote']['abi']
+                voteAddr = data['Vote']['contractAddr']
+                self.__contractVote = self.web3.eth.contract(
+                    address=voteAddr,
+                    abi=voteABI
+                )
+                searchABI = data['Search']['abi']
+                searchAddr = data['Search']['contractAddr']
+                self.__contractSearch = self.web3.eth.contract(
+                    address=searchAddr,
+                    abi=searchABI
+                )
 
-        # 계정 등록
-        self.__contractVote.functions.SignIn().call()
+            print("모든 SmartContact가 Load되었습니다.")
+
+            # 계정 등록
+            self.__contractVote.functions.SignIn().transact()
+            print("해당 SmartContract에 가입이 완료되었습니다.")
+        except Exception as e:
+            print(f'Error: {e}')
     
     def votingProcess(self, time, addrIPFS, strMerkleHash):
-        # 특정 시간대 투표권한 얻기
-        self.__contractVote.functions.GetVoteRight(time).transact()
+        try:
+            # 특정 시간대 투표권한 얻기
+            self.__contractVote.functions.GetVoteRight(time).transact()
 
-        # 안건 올리기
-        self.__contractVote.functions.Proposal(self.__accountNumer, time, addrIPFS, strMerkleHash).transact()
+            # 안건 올리기
+            self.__contractVote.functions.Proposal(self.__accountNumer, time, addrIPFS, strMerkleHash).transact()
+        except Exception as e:
+            print(f"Error:{e}")
         
 ## Node Sensor & Verification
 class NodeSV(NodeV):
