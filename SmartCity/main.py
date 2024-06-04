@@ -7,6 +7,7 @@ if __name__ == "__main__":
     if sys.argv[1] == 'TA':
         ta = TA(f'http://{sys.argv[2]}', 8545)
         # ta.getEthBlockInfo()
+        
         # TA로부터 keypair 발급
         # nodeList = ["NodeA", "NodeB", "NodeC", "NodeD", "NodeE"]
         # TA.generatePrivPubkey(nodeList, len(nodeList))
@@ -14,6 +15,10 @@ if __name__ == "__main__":
         # TA가 SmartContract 배퐆
         ta.loadSmartContract('contract.sol')
         ta.deploySmartContact('0.8.20')
+        
+        while True:
+            time = int(input("시간을 입력하세요: "))
+            ta.endOfVoting(time)
 
     elif 'Node' in sys.argv[1]:
         if len(sys.argv) <= 4:
@@ -40,6 +45,10 @@ if __name__ == "__main__":
         else:
             node.receivedSensorData('NodeA') 
             print(f"Calculate Merkle Tree:{node.calculateMerkleTree('NodeA')}")
+
+        node.loadContractData()
+        node.votingProcess(1, 'aaa', '0x123123')
+
     else:
         print("프로그렘을 실행할 충분한 인자가 없습니다.")
         print("ex)python3 main.py TA")

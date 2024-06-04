@@ -59,6 +59,10 @@ class TA:
             if self.__strsmartContract == None:
                 raise Exception("배포하고자하는 SmartContract에 대해 로딩이 필요합니다.")
             
+            if os.path.exists('SmartContract_Data.json'):
+                print("SmartContract가 이미 배포되어있습니다.")
+                return
+
             version = install_solc(versionSolc)
             print(f'Solc version: {version}')
             set_solc_version(versionSolc)
@@ -89,7 +93,8 @@ class TA:
                     innerDict['contractAddr'] = contractTxReceipt.contractAddress
                     if 'Vote' in contract_id:
                         contractData['Vote'] = innerDict
-
+                        
+                        self.__addrContractVote = contractTxReceipt.contractAddress
                         self.__contractVote = self.__web3.eth.contract(
                             address=contractTxReceipt.contractAddress,
                             abi=contract_interface['abi']
@@ -100,6 +105,11 @@ class TA:
                         print("Vote Contract에 ERC-20이 발행되었습니다.")
                     else:
                         contractData['Search'] = innerDict
+
+                        self.__contractSearch = self.__web3.eth.contract(
+                            address=contractTxReceipt.contractAddress,
+                            abi=contract_interface['abi']
+                        )
 
             with open('SmartContract_Data.json', 'w') as f:
                 json.dump(contractData, f)
@@ -117,6 +127,7 @@ class TA:
             print(f'{account}: {balance}')
 
     def endOfVoting(self, time):
-        returnTime, strProposerSID, addrIPFS = self.__contractVote.functions.VoteResult(time).transact()
-        print(f'{returnTime}시간대의 투표가 마무리되었습니다.')
-        print(f'INFO:\n제안자:{strProposerSID}\nIPFS주소:{addrIPFS}')
+        self.__contractVote.functions.VoteResult(time).transact()
+        result = self.__contractSearch.functions.QueryStoredData(self.__addrContractVote, time).call()
+        print(f'{result[0]}시간대의 투표가 마무리되었습니다.')
+        print(f'INFO:\n제안자: {result[1]}\nIPFS주소: {result[2]}\nMerkle Root값: {result[3]}')
