@@ -7,8 +7,8 @@ from Crypto.Cipher import AES
 from Crypto.Util.Padding import pad, unpad
 from pprint import pprint
 from web3 import Web3
+from datetime import datetime
 import socket
-import datetime
 import struct
 import json
 import cv2
@@ -99,6 +99,7 @@ class NodeV:
         # 자신이 가진 데이터를 모두 전송.
         # N||NodeList
         typeSendN = struct.pack('c', b'N')
+        self.__dictReceivedData.update(dict_data)
         dataEncoded = json.dumps(self.__dictReceivedData).encode('utf-8')
         message = typeSendN + dataEncoded
         self.socketBroadcastSend.sendto(message, (self.broadCastIP, self.nPort))
@@ -197,7 +198,7 @@ class NodeV:
     
     def receivedSensorData(self, strNodeName):
         print(f"{strNodeName}의 Frame을 수신합니다.")
-        # 노드의 공개키 찾기 추가하기
+
         nodeData = self.__dictReceivedData[strNodeName]
         if nodeData == None:
             raise Exception(f"{strNodeName}은 네트워크에 존재하지 않는 노드이름입니다.")            
@@ -206,25 +207,27 @@ class NodeV:
             raise Exception(f"{strNodeName}의 공개키가 존재하지 않습니다.")
         
         listFrameData = list()
-        counter = 1
+        counter = 0
+        totalFrames = self.sendFrameBytes
         try:
             while True:
-                # S||nFrameList||SID,SIG(F||AddrIPFS),AddrIPFS
+                if counter == totalFrames:
+                    break
+                # S||timestamp||nFrameList||SID,SIG(F||AddrIPFS),AddrIPFS
                 receivedData, addr = self.socketReceived.recvfrom(4096)
                 if addr[0] == self.ownIP:
                     continue
                 typePacket = struct.unpack('c', receivedData[:1])[0]
                 if typePacket != b'S':
                     continue
-                
-                totalFrames = struct.unpack('Q', receivedData[1:9])[0]
-                splitingData = receivedData[9:].decode('UTF-8')
+                timestamp = struct.unpack('Q', receivedData[1:9])[0]
+                totalFrames = struct.unpack('Q', receivedData[9:17])[0]
+                splitingData = receivedData[17:].decode('UTF-8')
                 splitedData = splitingData.split(',')
+
                 if splitedData[0] != strNodeName:
                     continue
-                if counter == totalFrames:
-                    break
-                
+
                 signature = splitedData[1]
                 addrIPFS = splitedData[2]
                 frame = b''
@@ -242,11 +245,11 @@ class NodeV:
                     raise Exception(f"{pubKeyNode}의 {counter}번째 frame 검증에 실패했습니다.")
                 
                 listFrameData.append(frame)
-                print(f'현재 검증 진행한 Frame:{counter}, 전체 Frame:{totalFrames}')
                 counter += 1
                 
             self.__dictReceivedFrames[strNodeName] = listFrameData
             print(f"{strNodeName}의 총 {totalFrames} Frame을 저장하였습니다.")
+            return timestamp, addrIPFS
             
         except Exception as e:
             print(f"{strNodeName}의 데이터를 수집하는 과정에서 아래 오류가 발생했습니다.\n{e}")
@@ -267,7 +270,7 @@ class NodeV:
                 right = listHashData.pop(0)
                 listHashData.append(sha256(f'{left.hex()}{right.hex()}'.encode('UTF-8')).digest())
         
-        return listHashData[0].hex()            
+        return listHashData[0]
 
     def loadContractData(self):
         try:
@@ -277,7 +280,11 @@ class NodeV:
             # 계정 부여
             self.__accountNumer = ord(self.__strNodeName[4]) - ord('A') + 1
             self.web3.eth.default_account = self.web3.eth.accounts[self.__accountNumer]
-
+            
+            if not os.path.exists('SmartContract_Data.json'):
+                print("SmartContract가 배포되어있지 않습니다.")
+                exit(-1)
+            
             with open('SmartContract_Data.json', 'r') as f:
                 data = json.load(f)
                 voteABI = data['Vote']['abi']
@@ -321,7 +328,7 @@ class NodeSV(NodeV):
     def __init__(self, strNodeName  :str, ownIP, strURL, strOwnIPFS, addrEth, sockEth):
         super().__init__(strNodeName, ownIP, addrEth, sockEth)
         self.__strSensorURL = strURL
-        self.__ownIPFSUrl = strOwnIPFS
+        self.__ownIPFSUrl = 'http://' + strOwnIPFS
         self.setNodeRole("Sensor")
         self.loadSecrete()
         self.__dicttSensorData = dict()
@@ -338,6 +345,7 @@ class NodeSV(NodeV):
         pubkey = self.getOwnPublicKey().to_string()[:16]
         token = self.__generateToken(pubkey)[:16]
         key = bytes(a ^ b for a, b in zip(pubkey, token))
+        print(f"Encryption Key: {key.hex()}")
         cipher = AES.new(key, AES.MODE_CBC, self.IV)
 
         with open(fileName, 'rb') as f:
@@ -349,15 +357,15 @@ class NodeSV(NodeV):
         response = requests.post(url, files=file)
         if response.status_code == 200:
             self.__dictTimeKey[fileName] = token
-            print("Upload Done")
+            print("Upload IPFS Done")
             return json.loads(response.text)
         else:
             raise Exception("영상을 IPFS에 올리지 못했습니다.")
     
     def getSensorData(self, timeDelay):
         # Get Video Data
-        timeCurrent = datetime.datetime.now().strftime("%Y-%m-%d.%H:%M:%S")
-        
+        timeCurrent =  int(datetime.timestamp(datetime.now()) * 1000)
+
         try:
             cap = cv2.VideoCapture(self.__strSensorURL)
             width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -395,14 +403,14 @@ class NodeSV(NodeV):
             
             # IPFS 업로드
             res = self.__uploadSensorDataIPFS(filePath)
-            print(res)
+            print(f"From IPFS\n{res}")
             
             IPFSDataHash = res['Hash']
             innerJson = {"IPFSAddr":IPFSDataHash, "Frames": videoFrame}
             
             # "time": {"IPFSAddr": "addr", "Frames": []}
-            self.__dicttSensorData[current_time] = innerJson
-            return current_time
+            self.__dicttSensorData[timeCurrent] = innerJson
+            return timeCurrent, IPFSDataHash
             
         except Exception as e:
             print(f"다음과 같은 예외가 발생했습니다.\n{e}")
@@ -416,11 +424,12 @@ class NodeSV(NodeV):
         packedType = struct.pack('c', typePacket)
         nListSensorFrame = len(listFrames)
         packedLengthFrames = struct.pack('Q', nListSensorFrame)
+        packedTimeStamp = struct.pack('Q', timeSensor)
         strNodeName = self.getNodeName()
         
-        # S||nFrameList||SID,SIG(F||AddrIPFS),AddrIPFS,Frame
-        # S||nFrameList
-        bcastmessage = packedType + packedLengthFrames
+        # S||timestamp||nFrameList||SID,SIG(F||AddrIPFS),AddrIPFS,Frame
+        # S||timestamp||nFrameList
+        bcastmessage = packedType  + packedTimeStamp + packedLengthFrames
         
         priv = self.getOwnPrivateKey()
         for frame in listFrames:
@@ -430,7 +439,7 @@ class NodeSV(NodeV):
                 hashfunc=sha256
             )
             
-            # S||nFrameList||SID,SIG(F||AddrIPFS),AddrIPFS
+            # S||timestamp||nFrameList||SID,SIG(F||AddrIPFS),AddrIPFS
             sendMessage = bcastmessage + f'{strNodeName},{sig.hex()},{addrIPFS}'.encode('UTF-8')
             self.socketBroadcastSend.sendto(sendMessage, (self.broadCastIP, self.nPort))
             
@@ -442,6 +451,25 @@ class NodeSV(NodeV):
             for i in range(sendCount):
                 message = frame[i*self.sendFrameBytes:(i+1)*self.sendFrameBytes]
                 self.socketBroadcastSend.sendto(message, (self.broadCastIP, self.nPort))
-                sleep(0.01)                
+                sleep(0.01)
             self.socketBroadcastSend.sendto(b"EndFrame", (self.broadCastIP, self.nPort))
-        print("Send Done")
+        print(f"Total {len(listFrames)} frame Send Done")
+
+    def calculateSensingDataMerkleTree(self, time):
+        collectionsSensorData = self.__dicttSensorData[time]
+        listFrames = collectionsSensorData['Frames']
+        listHashData = list()
+        
+        for frame in listFrames:
+            listHashData.append(sha256(frame).digest())
+        
+        while len(listHashData) != 1:
+            if len(listHashData) % 2 != 0:
+                listHashData.append(listHashData[-1])
+                
+            for i in range(len(listHashData)//2):
+                left = listHashData.pop(0)
+                right = listHashData.pop(0)
+                listHashData.append(sha256(f'{left.hex()}{right.hex()}'.encode('UTF-8')).digest())
+        
+        return listHashData[0]

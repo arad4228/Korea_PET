@@ -10,7 +10,7 @@ if __name__ == "__main__":
         
         # TA로부터 keypair 발급
         # nodeList = ["NodeA", "NodeB", "NodeC", "NodeD", "NodeE"]
-        # TA.generatePrivPubkey(nodeList, len(nodeList))
+        # ta.generatePrivPubkey(nodeList)
         
         # TA가 SmartContract 배퐆
         ta.loadSmartContract('contract.sol')
@@ -39,15 +39,19 @@ if __name__ == "__main__":
         node.networkInitialize()
         
         if strNodeName == "NodeA":
-            time = node.getSensorData(10)
-            print(time)
+            timeDelay = int(input("몇초의 영상을 저장하고 싶은지 입력하세요: "))
+            time, receivedAddrIPFS = node.getSensorData(timeDelay)
             node.sendSensorData(time)
+            strMerkleValue = node.calculateSensingDataMerkleTree(time)
+            print(f'Calculate Merkle Hash value:{strMerkleValue.hex()}')
         else:
-            node.receivedSensorData('NodeA') 
-            print(f"Calculate Merkle Tree:{node.calculateMerkleTree('NodeA')}")
+            time, receivedAddrIPFS = node.receivedSensorData('NodeA')
+            strMerkleValue = node.calculateMerkleTree('NodeA')
+            print(f"Calculate Merkle Hash value:{strMerkleValue.hex()}")
 
         node.loadContractData()
-        node.votingProcess(1, 'aaa', '0x123123')
+        node.votingProcess(time, receivedAddrIPFS, strMerkleValue)
+        print(f"time: {time}\nIPFS: {receivedAddrIPFS}\nMerkleRoot: {strMerkleValue.hex()}\n로 투표를 진행했습니다.")
 
     else:
         print("프로그렘을 실행할 충분한 인자가 없습니다.")

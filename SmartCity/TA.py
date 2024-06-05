@@ -27,11 +27,11 @@ class TA:
         self.__web3.eth.default_account = self.__web3.eth.accounts[0]
         self.__strsmartContract = None
        
-    def generatePrivPubkey(self, listNodeName, nClient):
+    def generatePrivPubkey(self, listNodeName):
         # "ID" : {"Priv": "Pub"}
         listPrivKeys = []
         listPubkeys = []
-        for i in range(nClient):
+        for i in range(len(listNodeName)):
             priv = SigningKey.generate(curve=NIST256p)
             while True:
                 if priv not in listPrivKeys:
@@ -47,6 +47,8 @@ class TA:
             dictKeyPair[hexPirv] = hexPub
             dictNdoeList[strNodeName] = dictKeyPair
         
+        print("다음과 같은 공개키, 개인키 쌍이 발급 되었습니다.")
+        pprint(dictNdoeList, indent=2)
         with open("NodeKeyPair.json", 'w') as f:
             json.dump(dictNdoeList, f)
     
@@ -129,5 +131,6 @@ class TA:
     def endOfVoting(self, time):
         self.__contractVote.functions.VoteResult(time).transact()
         result = self.__contractSearch.functions.QueryStoredData(self.__addrContractVote, time).call()
-        print(f'{result[0]}시간대의 투표가 마무리되었습니다.')
-        print(f'INFO:\n제안자: {result[1]}\nIPFS주소: {result[2]}\nMerkle Root값: {result[3]}')
+        print(f'{result[1]} 시간대의 투표가 마무리되었습니다.')
+        strNodeName = 'Node'+chr(int(result[0])+65)
+        print(f'INFO:\n제안자: {strNodeName}\nIPFS주소: {result[2]}\nMerkle Root값: {result[3]}')
