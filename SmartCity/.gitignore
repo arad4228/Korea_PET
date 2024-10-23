@@ -1,0 +1,29 @@
+## MAC
+.DS_Store
+../DS_Store
+
+## python cache file
+__pycache__ 
+
+## python env
+.venv
+
+## Priv, Pubkey Data
+NodeKeyPair.json
+
+## saved Video
+SavedVideo
+
+## HLS List
+hls_list.json
+
+## SmartContract
+SmartContract_data.json
+
+## Ganache Data
+EthData
+
+## npm
+node_modules
+package-lock.json
+package.json
