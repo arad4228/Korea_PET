@@ -9,8 +9,8 @@ if __name__ == "__main__":
         # ta.getEthBlockInfo()
         
         # TA로부터 keypair 발급
-        # nodeList = ["NodeA", "NodeB", "NodeC", "NodeD", "NodeE"]
-        # ta.generatePrivPubkey(nodeList)
+        nodeList = ["NodeA", "NodeB", "NodeC", "NodeD", "NodeE"]
+        ta.generatePrivPubkey(nodeList)
         
         # TA가 SmartContract 배퐆
         ta.loadSmartContract('contract.sol')
@@ -53,6 +53,11 @@ if __name__ == "__main__":
         node.votingProcess(time, receivedAddrIPFS, strMerkleValue)
         print(f"time: {time}\nIPFS: {receivedAddrIPFS}\nMerkleRoot: {strMerkleValue.hex()}\n로 투표를 진행했습니다.")
 
+        if strNodeName != "NodeA":
+            check = input("Sensor Data 복호화 여부: ")
+            if check == "Y" or check == "y":
+                node.downloadandDecrypt(time, receivedAddrIPFS)
+                print("복호화가 완료되었습니다.")
     else:
         print("프로그렘을 실행할 충분한 인자가 없습니다.")
         print("ex)python3 main.py TA")

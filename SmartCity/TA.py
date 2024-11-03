@@ -133,4 +133,4 @@ class TA:
         result = self.__contractSearch.functions.QueryStoredData(self.__addrContractVote, time).call()
         print(f'{result[1]} 시간대의 투표가 마무리되었습니다.')
         strNodeName = 'Node'+chr(int(result[0])+65)
-        print(f'INFO:\n제안자: {strNodeName}\nIPFS주소: {result[2]}\nMerkle Root값: {result[3]}')
+        print(f'INFO:\n제안자: {strNodeName}\nIPFS주소: {result[2]}\nMerkle Root값: {result[3].hex()}')
