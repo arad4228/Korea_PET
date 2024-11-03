@@ -14,6 +14,8 @@ import json
 import cv2
 import requests
 import os
+import tarfile
+import io
 
 ## Verification Node
 class NodeV:
@@ -27,6 +29,7 @@ class NodeV:
     __eventSocket                   :Event
     __listThread                    :list
     __dictReceivedFrames            :dict           # Received Frames "strNodeName" : [Frame, ...]
+    __ownIPFSUrl                    :str
     
     IV                              :bytearray
     ownIP                           :str
@@ -35,7 +38,7 @@ class NodeV:
     socketBroadcastSend             :socket
     web3                            :Web3
 
-    def __init__(self, strNodeName, ownIP, addrEth, socketW3):
+    def __init__(self, strNodeName, ownIP, addrEth, socketW3, strOwnIPFS):
         self.__strNodeName = strNodeName
         self.__strNodeRole = 'Validator'
         self.__dictReceivedData = OrderedDict()
@@ -49,7 +52,8 @@ class NodeV:
         self.__nInitialNodeNumber = 0
         self.broadCastIP = ownIP[:3]+"255.255.255"
         self.sendFrameBytes = 61440
-        
+        self.__ownIPFSUrl = 'http://' + strOwnIPFS
+
         # 받고 보낼 소켓 생성
         self.socketReceived = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.socketBroadcastSend = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -187,6 +191,9 @@ class NodeV:
     def getNodeName(self):
         return self.__strNodeName
     
+    def getOwnIPFSAddr(self):
+        return self.__ownIPFSUrl
+
     def setNodeRole(self, strNodeRole   :str):
         if strNodeRole == "Validator" or strNodeRole == "Sensor":
             self.__strNodeRole = strNodeRole
@@ -318,17 +325,56 @@ class NodeV:
         except Exception as e:
             print(f"Error:{e}")
         
+    def downloadandDecrypt(self, time, addrIPFS):
+        url = self.__ownIPFSUrl +f'/api/v0/get?arg={addrIPFS}'
+        path = os.getcwd()
+        outputpath = str(path)+f'{self.__strNodeName}.text'
+        response = requests.post(url)
+        if response.status_code == 200:
+            strNodeName = input("복호화할 영상의 주인을 입력해주세요.: ")
+            with open('NodeKeyPair.json', 'r') as f:
+                data = json.load(f)
+                dictKeyPair = data[strNodeName]
+                priv = list(dictKeyPair.keys())[0]
+                pub = dictKeyPair[priv]
+                bytesPub = bytes.fromhex(pub)
+
+            token = input("Node로부터 전달받은 Token을 입력헤주세요.: ")
+            bytetoken = bytes.fromhex(token)
+            key = bytes(a ^ b for a, b in zip(bytesPub[:16], bytetoken[:16]))
+            print(f"Calculated Key: {key.hex()}")
+
+            cipher = AES.new(key, AES.MODE_CBC, self.IV)
+
+            tar_data = io.BytesIO(response.content)
+        
+            # tar 파일로 열기
+            with tarfile.open(fileobj=tar_data, mode='r:*') as tar:
+                # 첫 번째 파일 멤버 가져오기
+                member = tar.next()
+                # 파일 데이터 추출
+                file_data = tar.extractfile(member).read()
+                print(f"Data Len: {len(file_data)}")
+        else:
+            print(f"Failed to download. Status code: {response.status_code}")
+            return
+        DecryptedData = cipher.decrypt(file_data)
+        NonPaddedData = unpad(DecryptedData, AES.block_size)
+        
+        currentPath = os.getcwd()
+        with open(currentPath+"/DecryptedData.avi", 'wb') as f:
+            f.write(NonPaddedData) 
+
+
 ## Node Sensor & Verification
 class NodeSV(NodeV):
     __strSensorURL          :str
-    __ownIPFSUrl            :str
     __dicttSensorData       :dict   #ex) [ "time": {"IPFSAddr": "addr", "Frames": []}, ....]
     __dictTimeKey           :dict   #ex) {"time":"Key"}
 
     def __init__(self, strNodeName  :str, ownIP, strURL, strOwnIPFS, addrEth, sockEth):
-        super().__init__(strNodeName, ownIP, addrEth, sockEth)
+        super().__init__(strNodeName, ownIP, addrEth, sockEth, strOwnIPFS)
         self.__strSensorURL = strURL
-        self.__ownIPFSUrl = 'http://' + strOwnIPFS
         self.setNodeRole("Sensor")
         self.loadSecrete()
         self.__dicttSensorData = dict()
@@ -340,18 +386,18 @@ class NodeSV(NodeV):
         return randomBytes
 
     def __uploadSensorDataIPFS(self, fileName):
-        url = self.__ownIPFSUrl +'/api/v0/add'
+        url = self.getOwnIPFSAddr() +'/api/v0/add'
         
         pubkey = self.getOwnPublicKey().to_string()[:16]
         token = self.__generateToken(pubkey)[:16]
         key = bytes(a ^ b for a, b in zip(pubkey, token))
+        print(f"Token(hex): {token.hex()}")
         print(f"Encryption Key: {key.hex()}")
         cipher = AES.new(key, AES.MODE_CBC, self.IV)
 
         with open(fileName, 'rb') as f:
             data = f.read()
         ciphertext = cipher.encrypt(pad(data, AES.block_size))
-        
         file = {'file': ciphertext}
         # params = {'wrap-with-directory': 'true'}
         response = requests.post(url, files=file)
