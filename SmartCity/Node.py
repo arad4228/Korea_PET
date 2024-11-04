@@ -332,13 +332,8 @@ class NodeV:
         response = requests.post(url)
         if response.status_code == 200:
             strNodeName = input("복호화할 영상의 주인을 입력해주세요.: ")
-            with open('NodeKeyPair.json', 'r') as f:
-                data = json.load(f)
-                dictKeyPair = data[strNodeName]
-                priv = list(dictKeyPair.keys())[0]
-                pub = dictKeyPair[priv]
-                bytesPub = bytes.fromhex(pub)
-
+            pubkey = self.__dictReceivedData[strNodeName]["PublicKey"]
+            bytesPub = bytes.fromhex(pubkey)
             token = input("Node로부터 전달받은 Token을 입력헤주세요.: ")
             bytetoken = bytes.fromhex(token)
             key = bytes(a ^ b for a, b in zip(bytesPub[:16], bytetoken[:16]))
